@@ -1,0 +1,6 @@
+{
+  "name": "FreightIQ — Estimador de Flete Marítimo",
+  "description": "Prototipo de tesis para la estimación predictiva de fletes marítimos de neumáticos mediante XGBoost.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
