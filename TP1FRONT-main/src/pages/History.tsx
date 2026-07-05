@@ -9,12 +9,14 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
+  Eye,
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { listQuotations, updateActualCost, getPdfUrl, QuotationItem } from '../api/quotations';
 import { useAuthStore } from '../store/authStore';
+import QuotationDetailModal from '../components/quotation/QuotationDetailModal';
 
 export default function HistoryPage() {
   const { accessToken, user } = useAuthStore();
@@ -37,6 +39,9 @@ export default function HistoryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCostoValue, setEditCostoValue] = useState('');
   const [isSavingCost, setIsSavingCost] = useState(false);
+
+  // Detalle (modal del ojito)
+  const [detailItem, setDetailItem] = useState<QuotationItem | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -195,10 +200,10 @@ export default function HistoryPage() {
                     <td className="px-5 py-4">
                       <p className="font-bold text-sm text-slate-700">{quote.puerto_origen} → Callao</p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {quote.tipo_contenedor} | {quote.peso_kg.toLocaleString()} kg
+                        {quote.tipo_contenedor && `${quote.tipo_contenedor} | `}{quote.peso_kg.toLocaleString()} kg
                         {quote.flete_unitario_usd != null && (
                           <span className="ml-1 text-slate-400">
-                            · ${quote.flete_unitario_usd.toFixed(4)}/kg
+                            · ${(quote.flete_unitario_usd * 1000).toFixed(2)}/t
                           </span>
                         )}
                       </p>
@@ -277,7 +282,12 @@ export default function HistoryPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4">
-                      <div className="flex items-center justify-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={() => setDetailItem(quote)}
+                          className="p-1.5 text-slate-400 hover:text-accent hover:bg-accent/5 rounded-lg transition-all"
+                          title="Ver detalle">
+                          <Eye size={16} />
+                        </button>
                         <button onClick={() => handleDownloadPdf(quote)}
                           className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all"
                           title="Descargar PDF">
@@ -322,6 +332,10 @@ export default function HistoryPage() {
           </button>
         </div>
       </div>
+
+      {detailItem && (
+        <QuotationDetailModal item={detailItem} onClose={() => setDetailItem(null)} />
+      )}
     </div>
   );
 }
