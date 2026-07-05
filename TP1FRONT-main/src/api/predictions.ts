@@ -2,11 +2,10 @@ import { apiClient } from './client';
 
 export interface PredictionRequest {
   puerto_origen: string;
-  tipo_contenedor: string;
   peso_kg: number;
   unidades?: number;
-  volumen_cbm?: number;
   fecha_embarque?: string;
+  periodo?: 'semanal' | 'mensual' | 'anual';
 }
 
 export interface SHAPContribution {
