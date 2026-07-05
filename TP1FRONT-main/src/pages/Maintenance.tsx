@@ -3,10 +3,13 @@ import { UploadCloud, Database, AlertCircle, TrendingUp, Save, RefreshCw } from 
 import { toast } from 'sonner';
 import { getMarketRates, updateMarketRates, MarketRates } from '../api/maintenance';
 
+// El backend almacena los precios en USD/kg; la interfaz trabaja en USD/tonelada.
+const KG_PER_TON = 1000;
+
 export default function Maintenance() {
   const [isUploading, setIsUploading] = useState(false);
 
-  // Tasas de mercado
+  // Objetivos de precio por tonelada (en USD/t para la UI)
   const [rates, setRates] = useState<MarketRates | null>(null);
   const [editRates, setEditRates] = useState<MarketRates>({ lag1: 0, lag2: 0, lag3: 0 });
   const [loadingRates, setLoadingRates] = useState(true);
@@ -17,24 +20,34 @@ export default function Maintenance() {
     getMarketRates()
       .then(data => {
         setRates(data);
-        setEditRates(data);
+        // Convertir USD/kg → USD/tonelada para edición
+        setEditRates({
+          lag1: data.lag1 * KG_PER_TON,
+          lag2: data.lag2 * KG_PER_TON,
+          lag3: data.lag3 * KG_PER_TON,
+        });
       })
-      .catch(() => toast.error('No se pudieron cargar las tasas de mercado.'))
+      .catch(() => toast.error('No se pudieron cargar los objetivos de precio.'))
       .finally(() => setLoadingRates(false));
   }, []);
 
   const handleSaveRates = async () => {
     if (editRates.lag1 <= 0 || editRates.lag2 <= 0 || editRates.lag3 <= 0) {
-      toast.error('Todas las tasas deben ser valores positivos.');
+      toast.error('Todos los precios deben ser valores positivos.');
       return;
     }
     setSavingRates(true);
     try {
-      const updated = await updateMarketRates(editRates);
+      // Convertir USD/tonelada → USD/kg antes de enviar al backend
+      const updated = await updateMarketRates({
+        lag1: editRates.lag1 / KG_PER_TON,
+        lag2: editRates.lag2 / KG_PER_TON,
+        lag3: editRates.lag3 / KG_PER_TON,
+      });
       setRates(updated);
-      toast.success('Tasas de mercado actualizadas. El modelo usará estos valores inmediatamente.');
+      toast.success('Objetivos de precio actualizados. El modelo usará estos valores inmediatamente.');
     } catch {
-      toast.error('No se pudieron guardar las tasas. Verifique que sea administrador.');
+      toast.error('No se pudieron guardar los objetivos. Verifique que sea administrador.');
     } finally {
       setSavingRates(false);
     }
@@ -59,27 +72,27 @@ export default function Maintenance() {
             <TrendingUp size={20} />
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-800">Tasas de Mercado de Referencia</h2>
-            <p className="text-xs text-slate-500">Flete unitario promedio (USD/kg) de los últimos 3 meses. Actualizar mensualmente.</p>
+            <h2 className="text-base font-bold text-slate-800">Objetivos: Precio por Tonelada</h2>
+            <p className="text-xs text-slate-500">Precio de referencia por tonelada (USD/t) por horizonte: semanal, mensual y anual.</p>
           </div>
         </div>
 
         <div className="mt-5 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-xs text-amber-800 mb-5">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
-          <span>Estos valores son features del modelo XGBoost (lag1, lag2, lag3). Mantenerlos actualizados mejora la precisión de las predicciones.</span>
+          <span>Estos precios alimentan las features de mercado del modelo XGBoost. Mantenerlos actualizados mejora la precisión de las predicciones.</span>
         </div>
 
         {loadingRates ? (
           <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
-            <RefreshCw size={16} className="animate-spin" /> Cargando tasas actuales…
+            <RefreshCw size={16} className="animate-spin" /> Cargando objetivos actuales…
           </div>
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
-                { key: 'lag1' as const, label: 'Mes actual (lag1)', hint: 'Promedio último mes' },
-                { key: 'lag2' as const, label: 'Mes anterior (lag2)', hint: 'Promedio hace 2 meses' },
-                { key: 'lag3' as const, label: 'Hace 3 meses (lag3)', hint: 'Promedio hace 3 meses' },
+                { key: 'lag1' as const, label: 'Promedio Semanal', hint: 'Precio de la última semana' },
+                { key: 'lag2' as const, label: 'Promedio Mensual', hint: 'Precio del último mes' },
+                { key: 'lag3' as const, label: 'Promedio Anual', hint: 'Precio de los últimos 12 meses' },
               ].map(({ key, label, hint }) => (
                 <div key={key}>
                   <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
@@ -89,13 +102,13 @@ export default function Maintenance() {
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-mono">$</span>
                     <input
                       type="number"
-                      step="0.001"
-                      min="0.001"
+                      step="1"
+                      min="0.01"
                       value={editRates[key]}
                       onChange={e => setEditRates(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
                       className="w-full pl-7 pr-12 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">USD/kg</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">USD/t</span>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">{hint}</p>
                 </div>
@@ -104,7 +117,7 @@ export default function Maintenance() {
 
             {rates && (
               <p className="text-xs text-slate-400">
-                Valores en uso actualmente: lag1={rates.lag1} · lag2={rates.lag2} · lag3={rates.lag3} USD/kg
+                Valores en uso actualmente: semanal={(rates.lag1 * KG_PER_TON).toFixed(2)} · mensual={(rates.lag2 * KG_PER_TON).toFixed(2)} · anual={(rates.lag3 * KG_PER_TON).toFixed(2)} USD/t
               </p>
             )}
 
