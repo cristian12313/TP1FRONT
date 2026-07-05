@@ -13,25 +13,61 @@ import { toast } from 'sonner';
 
 import { estimateFreight, PredictionResponse } from '../api/predictions';
 import { createQuotation, getPdfUrl } from '../api/quotations';
-import { getPorts, getContainerTypes, getAppConfig, Port } from '../api/catalogs';
+import { getPorts, getAppConfig, Port } from '../api/catalogs';
 import { useAuthStore } from '../store/authStore';
+import PredictionInsights from '../components/quotation/PredictionInsights';
+
+// El modelo trabaja en kg; la interfaz captura el peso en toneladas.
+const KG_PER_TON = 1000;
+
+type PeriodoTipo = 'semanal' | 'mensual' | 'anual';
+
+const PERIODOS: { key: PeriodoTipo; label: string }[] = [
+  { key: 'semanal', label: 'Semanal' },
+  { key: 'mensual', label: 'Mensual' },
+  { key: 'anual', label: 'Anual' },
+];
+
+/**
+ * Convierte la selección de periodo (semana/mes/año) a una fecha representativa
+ * YYYY-MM-DD que el backend usa para derivar mes, trimestre y semana del año.
+ */
+function buildFechaEmbarque(tipo: PeriodoTipo, valor: string): string | undefined {
+  if (!valor) return undefined;
+  if (tipo === 'mensual') {
+    // "2026-06" → primer día del mes
+    return `${valor}-01`;
+  }
+  if (tipo === 'anual') {
+    // "2026" → primer día del año
+    return `${valor}-01-01`;
+  }
+  // semanal: "2026-W26" → lunes de esa semana ISO
+  const m = valor.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return undefined;
+  const year = Number(m[1]);
+  const week = Number(m[2]);
+  const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+  const dow = simple.getUTCDay();
+  if (dow <= 4) simple.setUTCDate(simple.getUTCDate() - dow + 1);
+  else simple.setUTCDate(simple.getUTCDate() + 8 - dow);
+  return simple.toISOString().slice(0, 10);
+}
 
 export default function NewQuote() {
   const { accessToken } = useAuthStore();
 
   // Catálogos
   const [ports, setPorts] = useState<Port[]>([]);
-  const [containerTypes, setContainerTypes] = useState<string[]>([]);
   const [destinationPort, setDestinationPort] = useState('');
   const [catalogError, setCatalogError] = useState(false);
 
   // Form
   const [origen, setOrigen] = useState('');
-  const [contenedor, setContenedor] = useState('');
-  const [peso, setPeso] = useState<number | ''>('');
+  const [peso, setPeso] = useState<number | ''>('');          // en toneladas
   const [unidades, setUnidades] = useState<number | ''>('');
-  const [volumen, setVolumen] = useState<number | ''>('');
-  const [fechaEmbarque, setFechaEmbarque] = useState('');
+  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('mensual');
+  const [periodoValor, setPeriodoValor] = useState('');
   const [comentario, setComentario] = useState('');
 
   // Estado
@@ -46,7 +82,6 @@ export default function NewQuote() {
     setCatalogError(false);
     Promise.all([
       getPorts().then(data => setPorts(data)),
-      getContainerTypes().then(data => setContainerTypes(data.map(c => c.name))),
       getAppConfig().then(cfg => setDestinationPort(cfg.destination_port)),
     ]).catch(() => {
       setCatalogError(true);
@@ -61,7 +96,6 @@ export default function NewQuote() {
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!origen) errs.origen = 'Seleccione un puerto de origen';
-    if (!contenedor) errs.contenedor = 'Seleccione un tipo de contenedor';
     if (!peso || Number(peso) <= 0) errs.peso = 'El peso debe ser mayor a 0';
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -79,11 +113,10 @@ export default function NewQuote() {
     try {
       const data = await estimateFreight({
         puerto_origen: origen,
-        tipo_contenedor: contenedor,
-        peso_kg: Number(peso),
+        peso_kg: Number(peso) * KG_PER_TON,
         unidades: unidades ? Number(unidades) : undefined,
-        volumen_cbm: volumen ? Number(volumen) : undefined,
-        fecha_embarque: fechaEmbarque || undefined,
+        fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
+        periodo: periodoValor ? periodoTipo : undefined,
       });
       setResult(data);
     } catch (err: any) {
@@ -100,11 +133,9 @@ export default function NewQuote() {
     try {
       const q = await createQuotation({
         puerto_origen: origen,
-        tipo_contenedor: contenedor,
-        peso_kg: Number(peso),
+        peso_kg: Number(peso) * KG_PER_TON,
         unidades: unidades ? Number(unidades) : undefined,
-        volumen_cbm: volumen ? Number(volumen) : undefined,
-        fecha_embarque: fechaEmbarque || undefined,
+        fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
         flete_estimado_usd: result.flete_estimado_usd,
         ic95_min: result.ic95_min,
         ic95_max: result.ic95_max,
@@ -151,11 +182,10 @@ export default function NewQuote() {
     setApiError('');
     setComentario('');
     setOrigen('');
-    setContenedor('');
     setPeso('');
     setUnidades('');
-    setVolumen('');
-    setFechaEmbarque('');
+    setPeriodoTipo('mensual');
+    setPeriodoValor('');
     setErrors({});
   };
 
@@ -168,7 +198,7 @@ export default function NewQuote() {
             <AlertTriangle className="shrink-0 mt-0.5" size={18} />
             <div className="flex-1">
               <p className="font-semibold text-sm">Servidor no disponible</p>
-              <p className="text-xs mt-1">No se pudieron cargar los catálogos de puertos y contenedores. Asegúrese de que el backend esté activo.</p>
+              <p className="text-xs mt-1">No se pudieron cargar los catálogos de puertos. Asegúrese de que el backend esté activo.</p>
             </div>
             <button
               type="button"
@@ -222,35 +252,18 @@ export default function NewQuote() {
                   className="w-full text-sm border border-slate-200 bg-slate-50 rounded-lg p-3 text-slate-400 cursor-not-allowed" />
               </div>
 
-              {/* Tipo contenedor */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                  Tipo de Contenedor <span className="text-red-500">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {containerTypes.map(type => (
-                    <button key={type} type="button"
-                      onClick={() => { setContenedor(type); setErrors(p => ({ ...p, contenedor: '' })); }}
-                      className={`py-3 px-3 border rounded-lg text-sm font-semibold transition-all ${
-                        contenedor === type
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
-                      }`}
-                    >{type}</button>
-                  ))}
-                </div>
-                {errors.contenedor && <p className="text-xs text-red-500 mt-1.5">{errors.contenedor}</p>}
-              </div>
-
-              {/* Peso neto */}
+              {/* Peso neto (en toneladas) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Peso Neto (kg) <span className="text-red-500">*</span>
+                  Peso Neto (toneladas) <span className="text-red-500">*</span>
                 </label>
-                <input type="number" value={peso}
-                  onChange={e => { setPeso(e.target.value ? Number(e.target.value) : ''); setErrors(p => ({ ...p, peso: '' })); }}
-                  className={`w-full text-sm border ${errors.peso ? 'border-red-500 bg-red-50' : 'border-slate-300'} rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors`}
-                  placeholder="Ej: 440" />
+                <div className="relative">
+                  <input type="number" value={peso} step="0.001" min="0.001"
+                    onChange={e => { setPeso(e.target.value ? Number(e.target.value) : ''); setErrors(p => ({ ...p, peso: '' })); }}
+                    className={`w-full text-sm border ${errors.peso ? 'border-red-500 bg-red-50' : 'border-slate-300'} rounded-lg p-3 pr-10 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors`}
+                    placeholder="Ej: 24" />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">t</span>
+                </div>
                 {errors.peso && <p className="text-xs text-red-500 mt-1.5">{errors.peso}</p>}
               </div>
 
@@ -266,7 +279,8 @@ export default function NewQuote() {
                   min={1} step={1} />
                 {(() => {
                   if (!peso || !unidades || Number(unidades) <= 0) return null;
-                  const densidad = Number(peso) / Number(unidades);
+                  // densidad en kg por unidad (el peso se ingresa en toneladas)
+                  const densidad = (Number(peso) * KG_PER_TON) / Number(unidades);
                   if (densidad < 1 || densidad > 50) {
                     return (
                       <div className="flex items-start gap-1.5 mt-1.5 text-amber-600">
@@ -279,25 +293,44 @@ export default function NewQuote() {
                 })()}
               </div>
 
-              {/* Volumen (opcional) */}
+              {/* Periodo de embarque (opcional) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Volumen (CBM) <span className="text-slate-400 font-normal normal-case">— opcional</span>
+                  Periodo de Embarque <span className="text-slate-400 font-normal normal-case">— opcional</span>
                 </label>
-                <input type="number" value={volumen}
-                  onChange={e => setVolumen(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors"
-                  placeholder="Ej: 25.5" />
-              </div>
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  {PERIODOS.map(({ key, label }) => (
+                    <button key={key} type="button"
+                      onClick={() => { setPeriodoTipo(key); setPeriodoValor(''); }}
+                      className={`py-2.5 px-3 border rounded-lg text-sm font-semibold transition-all ${
+                        periodoTipo === key
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
 
-              {/* Fecha embarque (opcional) */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Fecha de Embarque <span className="text-slate-400 font-normal normal-case">— opcional</span>
-                </label>
-                <input type="date" value={fechaEmbarque}
-                  onChange={e => setFechaEmbarque(e.target.value)}
-                  className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors" />
+                {periodoTipo === 'mensual' && (
+                  <input type="month" value={periodoValor}
+                    onChange={e => setPeriodoValor(e.target.value)}
+                    className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors" />
+                )}
+                {periodoTipo === 'semanal' && (
+                  <input type="week" value={periodoValor}
+                    onChange={e => setPeriodoValor(e.target.value)}
+                    className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors" />
+                )}
+                {periodoTipo === 'anual' && (
+                  <select value={periodoValor}
+                    onChange={e => setPeriodoValor(e.target.value)}
+                    className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors">
+                    <option value="">Seleccione año</option>
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 1 + i).map(y => (
+                      <option key={y} value={String(y)}>{y}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
             </div>
@@ -363,11 +396,17 @@ export default function NewQuote() {
                   </div>
                 </div>
                 <div className="relative z-10">
-                  <p className="text-sm text-white/70 mb-1">Flete Estimado (USD)</p>
+                  <p className="text-sm text-white/70 mb-1">Precio Estimado por Tonelada (USD/t)</p>
                   <h2 className="text-5xl font-bold tracking-tight">
-                    ${result!.flete_estimado_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${(peso && Number(peso) > 0
+                        ? result!.flete_estimado_usd / Number(peso)
+                        : 0
+                      ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </h2>
-                  <p className="text-xs text-white/50 mt-2">
+                  <p className="text-sm text-white/80 mt-2">
+                    Flete total: <span className="font-semibold">${result!.flete_estimado_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
+                  </p>
+                  <p className="text-xs text-white/50 mt-1">
                     IC 95%: ${result!.ic95_min.toLocaleString('en-US', { maximumFractionDigits: 0 })} — ${result!.ic95_max.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                   </p>
                 </div>
@@ -376,26 +415,16 @@ export default function NewQuote() {
 
               <div className="p-6 flex-1 flex flex-col text-sm">
 
-                {/* SHAP top 3 */}
-                {result!.shap_contribuciones.length > 0 && (
-                  <div className="mb-6">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Top Variables Influyentes</p>
-                    <ul className="space-y-2">
-                      {result!.shap_contribuciones.map((c, i) => (
-                        <li key={i} className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded border border-slate-100">
-                          <span className="font-medium text-slate-700">{i + 1}. {c.variable}</span>
-                          <span className={`font-semibold text-xs px-2 py-0.5 rounded ${
-                            c.direction === 'positive'
-                              ? 'text-red-600 bg-red-100'
-                              : 'text-green-600 bg-green-100'
-                          }`}>
-                            {c.direction === 'positive' ? '↑' : '↓'} ${Math.abs(c.aporte).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {/* Insights: dispersión IC95 + confianza + variables SHAP */}
+                <div className="mb-6">
+                  <PredictionInsights
+                    fleteEstimado={result!.flete_estimado_usd}
+                    ic95Min={result!.ic95_min}
+                    ic95Max={result!.ic95_max}
+                    mape={result!.mape_modelo}
+                    shap={result!.shap_contribuciones}
+                  />
+                </div>
 
                 {/* Comentario */}
                 <div className="mb-6">
