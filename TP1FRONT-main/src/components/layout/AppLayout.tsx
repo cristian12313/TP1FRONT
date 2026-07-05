@@ -176,20 +176,6 @@ export default function AppLayout() {
             <span className="text-[10px] sm:text-xs font-semibold px-2 py-1 bg-green-100 text-green-700 rounded">
               Modelo: XGBoost v1.0
             </span>
-            <span className="hidden sm:inline text-[10px] sm:text-xs text-slate-400 font-medium">
-              MAPE Global: — | R²: —
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-[10px] uppercase font-bold text-slate-400">Tipo de Cambio</p>
-              <p className="text-xs sm:text-sm font-bold text-primary">S/ —</p>
-            </div>
-            <div className="h-8 w-px bg-slate-200" />
-            <div className="text-right">
-              <p className="text-[10px] uppercase font-bold text-slate-400">Bunker Fuel</p>
-              <p className="text-xs sm:text-sm font-bold text-primary">$ —</p>
-            </div>
           </div>
         </header>
 
