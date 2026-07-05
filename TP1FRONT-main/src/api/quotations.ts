@@ -3,10 +3,8 @@ import { SHAPContribution } from './predictions';
 
 export interface QuotationCreate {
   puerto_origen: string;
-  tipo_contenedor: string;
   peso_kg: number;
   unidades?: number;
-  volumen_cbm?: number;
   fecha_embarque?: string;
   flete_estimado_usd: number;
   ic95_min: number;
@@ -21,7 +19,7 @@ export interface QuotationItem {
   id: string;
   code: string;
   puerto_origen: string;
-  tipo_contenedor: string;
+  tipo_contenedor: string | null;
   peso_kg: number;
   unidades: number | null;
   volumen_cbm: number | null;
