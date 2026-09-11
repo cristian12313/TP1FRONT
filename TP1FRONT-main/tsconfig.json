@@ -23,5 +23,12 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "// H-32": [
+    "Sin include/exclude y con allowJs, tsc metia dist/assets/index-*.js (el",
+    "bundle compilado) en el conjunto del proyecto. Se acota a las fuentes y a",
+    "la configuracion de Vite."
+  ],
+  "include": ["src", "vite.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }

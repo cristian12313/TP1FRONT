@@ -7,8 +7,19 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+    build: {
+      rollupOptions: {
+        output: {
+          // H-28: separa las dependencias grandes del codigo de la aplicacion,
+          // para que un despliegue nuevo no invalide su cache en el navegador.
+          manualChunks: {
+            react: ['react', 'react-dom', 'react-router-dom'],
+            charts: ['recharts'],
+            motion: ['motion'],
+            forms: ['react-hook-form', '@hookform/resolvers', 'zod'],
+          },
+        },
+      },
     },
     resolve: {
       alias: {
