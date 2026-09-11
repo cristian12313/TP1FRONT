@@ -24,6 +24,24 @@ function dispersionLevel(relPct: number): Level {
   return 'Alta';
 }
 
+// Estilos de la confianza: mismas etiquetas que Level, pero el color va en
+// sentido INVERSO (confianza Alta = verde = bueno; dispersión Alta = rojo =
+// malo), así que no se reutiliza LEVEL_STYLES para no invertir su semántica.
+const CONFIANZA_STYLES: Record<Level, string> = {
+  Alta:  'bg-green-100 text-green-700 border-green-200',
+  Media: 'bg-amber-100 text-amber-700 border-amber-200',
+  Baja:  'bg-red-100 text-red-700 border-red-200',
+};
+const CONFIANZA_BAR: Record<Level, string> = {
+  Alta: 'bg-green-500', Media: 'bg-amber-500', Baja: 'bg-red-500',
+};
+
+function confianzaNivel(pct: number): Level {
+  if (pct >= 60) return 'Alta';
+  if (pct >= 35) return 'Media';
+  return 'Baja';
+}
+
 const usd = (n: number, dec = 0) =>
   `$${n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
 
@@ -42,8 +60,16 @@ export default function PredictionInsights({ fleteEstimado, ic95Min, ic95Max, ma
   // Posición del estimado dentro del rango [min, max] (≈50% por simetría)
   const estPos = amplitud > 0 ? ((fleteEstimado - ic95Min) / amplitud) * 100 : 50;
 
-  // Confianza del modelo: inversa del error relativo (acotada 0–100)
-  const confianza = Math.max(0, Math.min(100, 100 - relPct));
+  // Confianza del modelo: decae con la dispersión relativa, pero NO como
+  // "100 - relPct". Esa resta lineal toca 0% exacto en cuanto la dispersión
+  // supera el 100% del estimado — algo frecuente en cotizaciones extrapoladas
+  // (ver auditoría de modelo: el ancho del IC llega a medir hasta 5.5x el
+  // valor estimado) — y un "0%" en pantalla se lee como "la herramienta está
+  // rota", no como "hay poca confianza". Esta curva es una asíntota: nunca
+  // llega a 0 exacto y decae más suavemente, así que sigue leyéndose como un
+  // número bajo y honesto sin parecer un error.
+  const confianza = 100 / (1 + relPct / 60);
+  const nivelConfianza = confianzaNivel(confianza);
 
   const maxAbs = Math.max(...shap.map(s => Math.abs(s.aporte)), 1);
 
@@ -74,6 +100,12 @@ export default function PredictionInsights({ fleteEstimado, ic95Min, ic95Max, ma
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
           Amplitud IC 95%: {usd(amplitud)} (±{usd(margen)}). Mayor dispersión = mayor incertidumbre.
+          {ic95Min <= 0 && (
+            // El $0 de arriba es el piso FÍSICO del intervalo (un flete no
+            // puede ser negativo), no una predicción de flete gratuito. Sin
+            // esta aclaración, el número solo se lee como un error de cálculo.
+            ' El límite inferior de $0 es ese piso físico, no una estimación de flete cercano a cero.'
+          )}
         </p>
       </div>
 
@@ -83,16 +115,18 @@ export default function PredictionInsights({ fleteEstimado, ic95Min, ic95Max, ma
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <ShieldCheck size={13} className="text-slate-400" /> Confianza del Modelo
           </p>
-          <span className="text-xs font-bold text-slate-700">{confianza.toFixed(0)}%</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${CONFIANZA_STYLES[nivelConfianza]}`}>
+            {nivelConfianza} · {confianza.toFixed(0)}%
+          </span>
         </div>
         <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
           <div
-            className={`h-full rounded-full ${confianza >= 60 ? 'bg-green-500' : confianza >= 40 ? 'bg-amber-500' : 'bg-red-500'}`}
-            style={{ width: `${confianza}%` }}
+            className={`h-full rounded-full ${CONFIANZA_BAR[nivelConfianza]}`}
+            style={{ width: `${Math.max(confianza, 4)}%` }}
           />
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
-          Basado en el MAPE del modelo ({mape.toFixed(1)}%) y la amplitud del intervalo.
+          Basado en el MAPE del modelo ({mape.toFixed(1)}%) y la amplitud del intervalo respecto al estimado.
         </p>
       </div>
 

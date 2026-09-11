@@ -88,10 +88,19 @@ export default function Dashboard() {
           subtext="error medio absoluto"
           icon={Target}
         />
+        {/*
+          H-13. Esta tarjeta mostraba 0.045, una constante escrita a mano en
+          dashboard_service.py, cuando el R² real del artifact es -0.0183 (signo
+          contrario). Ahora viene del artifact. Se rotula "MAPE del modelo"
+          porque modelo_meta.json -> nota_R2 pide expresamente que el R² NO
+          encabece la tabla de resultados: cambia de signo entre variantes
+          razonables del pipeline sin que el MAPE se mueva. El R² se conserva
+          como subtexto, que es su sitio: diagnóstico, no resultado.
+        */}
         <KPICard
-          title="R² del Modelo"
-          value={kpis.r2_modelo.toFixed(3)}
-          subtext="coeficiente determinación"
+          title="MAPE del Modelo"
+          value={`${kpis.mape_test_modelo.toFixed(1)}%`}
+          subtext={`test histórico · R² ${kpis.r2_modelo.toFixed(3)}`}
           icon={Zap}
         />
         <KPICard
@@ -235,7 +244,7 @@ export default function Dashboard() {
 
       {/* Flete por ruta */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="text-sm font-bold text-slate-700 mb-4">Flete Promedio por Puerto de Origen (USD)</h3>
+        <h3 className="text-sm font-bold text-slate-700 mb-4">Flete Promedio por Puerto de Embarque (USD)</h3>
         {routeData.length > 0 ? (
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={routeData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>

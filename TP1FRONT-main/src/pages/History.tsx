@@ -88,7 +88,20 @@ export default function HistoryPage() {
   const handleDownloadPdf = (item: QuotationItem) => {
     const url = getPdfUrl(item.id);
     fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(r => r.blob())
+      .then(async r => {
+        // H-17: sin comprobar `r.ok`, un 403 o un 500 se convertia en blob y se
+        // descargaba como "cotizacion_X.pdf" — un fichero de 20 bytes con el
+        // texto "Internal Server Error" dentro.
+        if (!r.ok) {
+          let detalle = '';
+          try {
+            const cuerpo = await r.json();
+            detalle = typeof cuerpo?.detail === 'string' ? cuerpo.detail : '';
+          } catch { /* la respuesta no era JSON */ }
+          throw new Error(detalle || `El servidor respondio ${r.status}.`);
+        }
+        return r.blob();
+      })
       .then(blob => {
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -99,7 +112,7 @@ export default function HistoryPage() {
         document.body.removeChild(link);
         URL.revokeObjectURL(blobUrl);
       })
-      .catch(() => toast.error('No se pudo descargar el PDF.'));
+      .catch((e: Error) => toast.error(e.message || 'No se pudo descargar el PDF.'));
   };
 
   const handleExportCsv = () => {

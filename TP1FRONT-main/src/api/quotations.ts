@@ -1,17 +1,22 @@
 import { apiClient } from './client';
 import { SHAPContribution } from './predictions';
 
+/**
+ * Solo los INPUTS del formulario.
+ *
+ * El backend recalcula la estimación con el modelo y guarda su propio resultado
+ * (ver app/services/quotation_service.py). Enviar aquí flete/IC/MAPE dejaba que
+ * el cliente fijara el importe de la cotización.
+ */
 export interface QuotationCreate {
   puerto_origen: string;
+  importador?: string;
   peso_kg: number;
   unidades?: number;
   fecha_embarque?: string;
-  flete_estimado_usd: number;
-  ic95_min: number;
-  ic95_max: number;
-  mape_modelo: number;
-  tiempo_ms: number;
-  shap_contribuciones?: SHAPContribution[];
+  periodo?: string;
+  tipo_contenedor?: string;
+  volumen_cbm?: number;
   comentario?: string;
 }
 
@@ -19,6 +24,7 @@ export interface QuotationItem {
   id: string;
   code: string;
   puerto_origen: string;
+  importador: string | null;
   tipo_contenedor: string | null;
   peso_kg: number;
   unidades: number | null;
@@ -29,6 +35,8 @@ export interface QuotationItem {
   ic95_min: number;
   ic95_max: number;
   mape_modelo: number;
+  /** 'historico' | 'extrapolado'; null en cotizaciones previas a la migración 004. */
+  mape_regimen?: string | null;
   tiempo_ms: number;
   shap_contribuciones: SHAPContribution[] | null;
   estado: string;

@@ -57,8 +57,9 @@ export default function QuotationDetailModal({ item, onClose }: Props) {
         <div className="p-6 space-y-6">
           {/* Datos del embarque */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <Detalle label="Puerto de Origen" value={item.puerto_origen} />
+            <Detalle label="Puerto de Embarque" value={item.puerto_origen} />
             <Detalle label="Puerto de Destino" value="Callao (PE)" />
+            {item.importador && <Detalle label="Importador" value={item.importador} />}
             <Detalle label="Peso Neto" value={`${toneladas.toLocaleString('en-US', { maximumFractionDigits: 3 })} t`} />
             {item.unidades != null && <Detalle label="Unidades" value={String(item.unidades)} />}
             {item.tipo_contenedor && <Detalle label="Contenedor" value={item.tipo_contenedor} />}

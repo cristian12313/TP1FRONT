@@ -30,10 +30,30 @@ const processQueue = (error: unknown, token: string | null) => {
   failedQueue = [];
 };
 
+/**
+ * Rutas de autenticación: su 401 significa "credenciales incorrectas", NO
+ * "sesión caducada".
+ *
+ * Antes el interceptor trataba por igual cualquier 401. El de POST
+ * /api/auth/login entraba en la rama de refresco, no encontraba refreshToken y
+ * ejecutaba `clearAuth() + window.location.href = '/login'`: una recarga
+ * completa que destruía el `apiError` que LoginPage acababa de fijar. Resultado:
+ * una contraseña incorrecta vaciaba el formulario sin mostrar ningún mensaje, y
+ * el usuario solo veía algo al sexto intento, cuando el backend devuelve 423.
+ */
+const RUTAS_AUTH = ['/api/auth/login', '/api/auth/refresh', '/api/auth/forgot-password', '/api/auth/reset-password'];
+
+const esRutaAuth = (url?: string) =>
+  !!url && RUTAS_AUTH.some((r) => url.includes(r));
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    if (esRutaAuth(originalRequest?.url)) {
+      return Promise.reject(error);
+    }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {

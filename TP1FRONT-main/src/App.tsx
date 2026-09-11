@@ -1,24 +1,45 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/layout/ProtectedRoute';
+import Spinner from './components/shared/Spinner';
 
 import LoginPage from './pages/LoginPage';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
 
-import Dashboard from './pages/Dashboard';
-import NewQuote from './pages/NewQuote';
-import HistoryPage from './pages/History';
-import UserMgmt from './pages/UserMgmt';
-import Maintenance from './pages/Maintenance';
-import HelpPage from './pages/Help';
+/**
+ * H-28. Todo iba en un unico chunk de 1.08 MB (324 kB comprimidos), incluidos
+ * `recharts` —que solo usa el Dashboard— y los paneles de Mantenimiento, que
+ * solo ve un administrador. La pantalla de login tenia que descargar la
+ * aplicacion entera antes de pintarse.
+ *
+ * `LoginPage` se mantiene en el chunk principal porque es la primera pantalla
+ * de todo usuario no autenticado: cargarla en diferido anadiria un salto de red
+ * justo donde mas se nota.
+ */
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const NewQuote = lazy(() => import('./pages/NewQuote'));
+const HistoryPage = lazy(() => import('./pages/History'));
+const UserMgmt = lazy(() => import('./pages/UserMgmt'));
+const Maintenance = lazy(() => import('./pages/Maintenance'));
+const HelpPage = lazy(() => import('./pages/Help'));
+
+function Cargando() {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[50vh] gap-3 text-slate-400 text-sm">
+      <Spinner size={20} /> Cargando…
+    </div>
+  );
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
+      <Suspense fallback={<Cargando />}>
       <Routes>
         {/* ── Rutas públicas ──────────────────────────────────────────────── */}
         <Route path="/login" element={<LoginPage />} />
@@ -85,6 +106,7 @@ export default function App() {
           }
         />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

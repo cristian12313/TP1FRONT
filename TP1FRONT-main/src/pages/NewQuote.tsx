@@ -13,12 +13,37 @@ import { toast } from 'sonner';
 
 import { estimateFreight, PredictionResponse } from '../api/predictions';
 import { createQuotation, getPdfUrl } from '../api/quotations';
-import { getPorts, getAppConfig, Port } from '../api/catalogs';
+import { getPorts, getAppConfig, getImportadores, Port, Importador } from '../api/catalogs';
 import { useAuthStore } from '../store/authStore';
+import { usePredictionStatusStore } from '../store/predictionStatusStore';
 import PredictionInsights from '../components/quotation/PredictionInsights';
+import WeekPicker from '../components/shared/WeekPicker';
+import { mensajeDeError } from '../lib/apiError';
+import { parseSemanaISO, semanaISOToFecha } from '../lib/semanaISO';
 
 // El modelo trabaja en kg; la interfaz captura el peso en toneladas.
 const KG_PER_TON = 1000;
+
+// Horizonte cotizable. TERCERA AUDITORÍA: estos límites estaban hardcodeados
+// aquí Y en app/schemas/prediction.py. Al reentrenar con datos de otro periodo
+// se habrían desincronizado, dejando la UI ofreciendo fechas que el backend
+// rechaza. Ahora el backend los DERIVA del artifact y los publica en
+// /api/catalogs/app-config; estos valores son solo el estado inicial mientras
+// llega la respuesta. No los edites a mano: cambia el artifact.
+const LIMITES_INICIALES = { fechaMin: '2021-04-01', fechaMax: '2030-12-31' };
+
+/** 'YYYY-MM-DD' -> 'YYYY-MM' para los input[type=month]. */
+const aMes = (d: string) => d.slice(0, 7);
+
+/** Años completos cotizables: el 1 de enero debe caer dentro del rango, porque
+ *  es la fecha que `buildFechaEmbarque` envía para el periodo anual. */
+function aniosValidos(fechaMin: string, fechaMax: string): number[] {
+  const desde = fechaMin.slice(5) === '01-01'
+    ? Number(fechaMin.slice(0, 4))
+    : Number(fechaMin.slice(0, 4)) + 1;
+  const hasta = Number(fechaMax.slice(0, 4));
+  return Array.from({ length: Math.max(0, hasta - desde + 1) }, (_, i) => desde + i);
+}
 
 type PeriodoTipo = 'semanal' | 'mensual' | 'anual';
 
@@ -43,27 +68,25 @@ function buildFechaEmbarque(tipo: PeriodoTipo, valor: string): string | undefine
     return `${valor}-01-01`;
   }
   // semanal: "2026-W26" → lunes de esa semana ISO
-  const m = valor.match(/^(\d{4})-W(\d{2})$/);
-  if (!m) return undefined;
-  const year = Number(m[1]);
-  const week = Number(m[2]);
-  const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
-  const dow = simple.getUTCDay();
-  if (dow <= 4) simple.setUTCDate(simple.getUTCDate() - dow + 1);
-  else simple.setUTCDate(simple.getUTCDate() + 8 - dow);
-  return simple.toISOString().slice(0, 10);
+  const [anio, semana] = parseSemanaISO(valor);
+  return anio ? semanaISOToFecha(anio, semana) : undefined;
 }
 
 export default function NewQuote() {
   const { accessToken } = useAuthStore();
+  const setPredictionStatus = usePredictionStatusStore(s => s.setStatus);
+  const clearPredictionStatus = usePredictionStatusStore(s => s.clearStatus);
 
   // Catálogos
   const [ports, setPorts] = useState<Port[]>([]);
+  const [importadores, setImportadores] = useState<Importador[]>([]);
   const [destinationPort, setDestinationPort] = useState('');
   const [catalogError, setCatalogError] = useState(false);
 
   // Form
   const [origen, setOrigen] = useState('');
+  const [importador, setImportador] = useState('');
+  const [limites, setLimites] = useState(LIMITES_INICIALES);
   const [peso, setPeso] = useState<number | ''>('');          // en toneladas
   const [unidades, setUnidades] = useState<number | ''>('');
   const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('mensual');
@@ -82,7 +105,14 @@ export default function NewQuote() {
     setCatalogError(false);
     Promise.all([
       getPorts().then(data => setPorts(data)),
-      getAppConfig().then(cfg => setDestinationPort(cfg.destination_port)),
+      getImportadores().then(data => setImportadores(data)),
+      getAppConfig().then(cfg => {
+        setDestinationPort(cfg.destination_port);
+        // Los límites los DERIVA el backend del artifact; nunca se recalculan aquí.
+        if (cfg.fecha_min && cfg.fecha_max) {
+          setLimites({ fechaMin: cfg.fecha_min, fechaMax: cfg.fecha_max });
+        }
+      }),
     ]).catch(() => {
       setCatalogError(true);
       toast.error('No se pudo conectar con el servidor. Verifique que el backend esté activo.');
@@ -91,11 +121,15 @@ export default function NewQuote() {
 
   useEffect(() => {
     loadCatalogs();
+    // El badge de estado en el header global pertenece a ESTA pantalla: al
+    // salir de "Nueva Cotización" no debe seguir mostrando el MAPE de una
+    // predicción que ya no está a la vista.
+    return () => clearPredictionStatus();
   }, []);
 
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!origen) errs.origen = 'Seleccione un puerto de origen';
+    if (!origen) errs.origen = 'Seleccione un puerto de embarque';
     if (!peso || Number(peso) <= 0) errs.peso = 'El peso debe ser mayor a 0';
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -113,15 +147,27 @@ export default function NewQuote() {
     try {
       const data = await estimateFreight({
         puerto_origen: origen,
+        importador: importador || undefined,
         peso_kg: Number(peso) * KG_PER_TON,
         unidades: unidades ? Number(unidades) : undefined,
         fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
         periodo: periodoValor ? periodoTipo : undefined,
       });
       setResult(data);
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || 'El servicio de pronóstico está temporalmente no disponible.';
-      setApiError(msg);
+      // Los badges de estado (MAPE, tiempo, calibración del IC) viven en el
+      // header global — ver store/predictionStatusStore.ts — para que nunca
+      // puedan quedar visualmente pegados a la barra superior de la página.
+      setPredictionStatus({
+        mape: data.mape_modelo,
+        mapeRegimen: data.mape_regimen ?? 'historico',
+        tiempoMs: data.tiempo_ms,
+        ic95Calibrado: data.ic95_calibrado ?? true,
+        horizonteCalibradoMeses: data.ic95_horizonte_calibrado_meses ?? null,
+      });
+    } catch (err: unknown) {
+      // H-33: el `detail` de un 422 es un array de objetos; pintarlo tal cual
+      // rompe el render de React. `mensajeDeError` lo normaliza a texto.
+      setApiError(mensajeDeError(err, 'El servicio de pronóstico está temporalmente no disponible.'));
     } finally {
       setIsLoading(false);
     }
@@ -131,23 +177,22 @@ export default function NewQuote() {
     if (!result) return;
     setIsSaving(true);
     try {
+      // Se envían SOLO los inputs: el backend recalcula la estimación con el
+      // modelo y guarda su propio resultado, de modo que una cotización guardada
+      // es siempre prueba de lo que el modelo dijo para esos inputs.
       const q = await createQuotation({
         puerto_origen: origen,
+        importador: importador || undefined,
         peso_kg: Number(peso) * KG_PER_TON,
         unidades: unidades ? Number(unidades) : undefined,
         fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
-        flete_estimado_usd: result.flete_estimado_usd,
-        ic95_min: result.ic95_min,
-        ic95_max: result.ic95_max,
-        mape_modelo: result.mape_modelo,
-        tiempo_ms: result.tiempo_ms,
-        shap_contribuciones: result.shap_contribuciones,
+        periodo: periodoValor ? periodoTipo : undefined,
         comentario: comentario || undefined,
       });
       setSavedId(q.id);
       toast.success('Cotización guardada exitosamente');
-    } catch (err: any) {
-      toast.error('No se pudo guardar la cotización. Intente de nuevo.');
+    } catch (err: unknown) {
+      toast.error(mensajeDeError(err, 'No se pudo guardar la cotización. Intente de nuevo.'));
     } finally {
       setIsSaving(false);
     }
@@ -164,7 +209,20 @@ export default function NewQuote() {
     link.setAttribute('download', `cotizacion_${savedId}.pdf`);
     // Agregar token en header no es posible con <a>, usamos fetch
     fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(r => r.blob())
+      .then(async r => {
+        // H-17: sin comprobar `r.ok`, un 403 o un 500 se convertia en blob y se
+        // descargaba como "cotizacion_X.pdf" — un fichero de 20 bytes con el
+        // texto "Internal Server Error" dentro.
+        if (!r.ok) {
+          let detalle = '';
+          try {
+            const cuerpo = await r.json();
+            detalle = typeof cuerpo?.detail === 'string' ? cuerpo.detail : '';
+          } catch { /* la respuesta no era JSON */ }
+          throw new Error(detalle || `El servidor respondio ${r.status}.`);
+        }
+        return r.blob();
+      })
       .then(blob => {
         const blobUrl = URL.createObjectURL(blob);
         link.href = blobUrl;
@@ -173,7 +231,7 @@ export default function NewQuote() {
         document.body.removeChild(link);
         URL.revokeObjectURL(blobUrl);
       })
-      .catch(() => toast.error('No se pudo generar el PDF.'));
+      .catch((e: Error) => toast.error(e.message || 'No se pudo generar el PDF.'));
   };
 
   const resetForm = () => {
@@ -182,11 +240,13 @@ export default function NewQuote() {
     setApiError('');
     setComentario('');
     setOrigen('');
+    setImportador('');
     setPeso('');
     setUnidades('');
     setPeriodoTipo('mensual');
     setPeriodoValor('');
     setErrors({});
+    clearPredictionStatus();
   };
 
   return (
@@ -227,17 +287,17 @@ export default function NewQuote() {
           <form onSubmit={handleCalculate} className="flex flex-col">
             <div className="p-6 space-y-5">
 
-              {/* Puerto origen */}
+              {/* Puerto de embarque */}
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Puerto de Origen <span className="text-red-500">*</span>
+                  Puerto de Embarque <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={origen}
                   onChange={e => { setOrigen(e.target.value); setErrors(p => ({ ...p, origen: '' })); }}
                   className={`w-full text-sm border ${errors.origen ? 'border-red-500 bg-red-50' : 'border-slate-300'} rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors`}
                 >
-                  <option value="">Seleccione origen</option>
+                  <option value="">Seleccione puerto de embarque</option>
                   {ports.map(p => (
                     <option key={p.key} value={p.key}>{p.name}</option>
                   ))}
@@ -250,6 +310,26 @@ export default function NewQuote() {
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Puerto de Destino</label>
                 <input type="text" value={destinationPort || '—'} disabled
                   className="w-full text-sm border border-slate-200 bg-slate-50 rounded-lg p-3 text-slate-400 cursor-not-allowed" />
+              </div>
+
+              {/* Importador (opcional) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  Importador <span className="text-slate-400 font-normal normal-case">— opcional</span>
+                </label>
+                <select
+                  value={importador}
+                  onChange={e => setImportador(e.target.value)}
+                  className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors"
+                >
+                  <option value="">No especificado</option>
+                  {importadores.map(i => (
+                    <option key={i.key} value={i.key}>{i.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1.5">
+                  Si se conoce, mejora la precisión usando el historial real de esa empresa.
+                </p>
               </div>
 
               {/* Peso neto (en toneladas) */}
@@ -279,7 +359,14 @@ export default function NewQuote() {
                   min={1} step={1} />
                 {(() => {
                   if (!peso || !unidades || Number(unidades) <= 0) return null;
-                  // densidad en kg por unidad (el peso se ingresa en toneladas)
+                  // Densidad en kg por unidad (el peso se ingresa en toneladas).
+                  // El umbral superior de 50 NO es arbitrario: es el punto en que
+                  // el modelo SATURA. Medido en modelo_meta.json ->
+                  // diagnostico_saturacion_densidad, para densidad_carga >= 50 el
+                  // modelo devuelve exactamente el mismo valor para 50, 500 o
+                  // 50000, asi que un error de tipeo en 'unidades' no movería la
+                  // estimación y el usuario no lo notaría. Este aviso es la única
+                  // mitigación que existe para esa saturación.
                   const densidad = (Number(peso) * KG_PER_TON) / Number(unidades);
                   if (densidad < 1 || densidad > 50) {
                     return (
@@ -313,20 +400,20 @@ export default function NewQuote() {
 
                 {periodoTipo === 'mensual' && (
                   <input type="month" value={periodoValor}
+                    min={aMes(limites.fechaMin)} max={aMes(limites.fechaMax)}
                     onChange={e => setPeriodoValor(e.target.value)}
                     className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors" />
                 )}
                 {periodoTipo === 'semanal' && (
-                  <input type="week" value={periodoValor}
-                    onChange={e => setPeriodoValor(e.target.value)}
-                    className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors" />
+                  <WeekPicker value={periodoValor} onChange={setPeriodoValor}
+                    fechaMin={limites.fechaMin} fechaMax={limites.fechaMax} />
                 )}
                 {periodoTipo === 'anual' && (
                   <select value={periodoValor}
                     onChange={e => setPeriodoValor(e.target.value)}
                     className="w-full text-sm border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-accent outline-none bg-white transition-colors">
                     <option value="">Seleccione año</option>
-                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 1 + i).map(y => (
+                    {aniosValidos(limites.fechaMin, limites.fechaMax).map(y => (
                       <option key={y} value={String(y)}>{y}</option>
                     ))}
                   </select>
@@ -384,17 +471,13 @@ export default function NewQuote() {
               initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
               className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full">
 
-              {/* Header con precio */}
+              {/* Header con precio.
+                  El MAPE, el tiempo de respuesta y el estado de calibración del
+                  IC ya no se muestran aquí: viven como badges en el header
+                  GLOBAL de la aplicación (ver store/predictionStatusStore.ts),
+                  para que nunca puedan quedar visualmente pegados a la barra
+                  superior sticky de la página. */}
               <div className="bg-primary p-6 text-white text-center relative overflow-hidden">
-                <div className="flex justify-between items-start mb-4 relative z-10">
-                  <div className="flex items-center gap-1 bg-white/10 text-white/80 px-2 py-0.5 rounded text-xs font-mono">
-                    MAPE {result!.mape_modelo.toFixed(1)}%
-                  </div>
-                  <div className="flex items-center gap-1 bg-green-500/20 text-green-300 px-2 py-0.5 rounded border border-green-500/30 text-xs">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                    {result!.tiempo_ms} ms
-                  </div>
-                </div>
                 <div className="relative z-10">
                   <p className="text-sm text-white/70 mb-1">Precio Estimado por Tonelada (USD/t)</p>
                   <h2 className="text-5xl font-bold tracking-tight">
@@ -407,13 +490,42 @@ export default function NewQuote() {
                     Flete total: <span className="font-semibold">${result!.flete_estimado_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                   </p>
                   <p className="text-xs text-white/50 mt-1">
-                    IC 95%: ${result!.ic95_min.toLocaleString('en-US', { maximumFractionDigits: 0 })} — ${result!.ic95_max.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    {result!.ic95_calibrado === false ? 'Intervalo (95% NO garantizado)' : 'IC 95%'}: $
+                    {result!.ic95_min.toLocaleString('en-US', { maximumFractionDigits: 0 })} — ${result!.ic95_max.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    {result!.ic95_calibrado === false ? (
+                      <span className="text-amber-300"> · fuera del horizonte calibrado
+                        {result!.ic95_horizonte_calibrado_meses ? ` (${result!.ic95_horizonte_calibrado_meses} meses)` : ''}</span>
+                    ) : result!.mape_regimen === 'extrapolado' ? (
+                      <span className="text-amber-300/70"> · calibrado para mercado congelado</span>
+                    ) : null}
+                  </p>
+                  {result!.ic95_min <= 0 && (
+                    // El $0 es un límite FÍSICO (un flete no puede ser negativo),
+                    // no una predicción de que el flete valga cero. Sin esta nota
+                    // el número solo, sin contexto, se lee como un error de cálculo.
+                    <p className="text-[10px] text-white/35 mt-0.5">
+                      El $0 es el piso físico del intervalo, no una estimación de flete gratuito.
+                    </p>
+                  )}
+                  <p className="text-[11px] text-white/40 mt-1 font-mono">
+                    Mercado observado hasta {result!.mercado_vigente_hasta}
+                    {result!.meses_extrapolados > 0 && ` · proyectado ${result!.meses_extrapolados} mes(es)`}
                   </p>
                 </div>
                 <div className="absolute -right-8 -bottom-16 w-48 h-48 bg-white/5 rounded-full blur-2xl" />
               </div>
 
               <div className="p-6 flex-1 flex flex-col text-sm">
+
+                {/* Vigencia de los datos de mercado: las 3 variables de mercado
+                    pesan ~89% del modelo, así que una cotización lejos del último
+                    mes observado debe advertirse en vez de presentarse sin más. */}
+                {result!.advertencia && (
+                  <div className="mb-5 flex gap-2.5 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <AlertTriangle className="h-4 w-4 flex-none text-amber-600 mt-0.5" />
+                    <p className="text-xs leading-relaxed text-amber-900">{result!.advertencia}</p>
+                  </div>
+                )}
 
                 {/* Insights: dispersión IC95 + confianza + variables SHAP */}
                 <div className="mb-6">

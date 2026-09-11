@@ -22,6 +22,7 @@ export interface DashboardKPIs {
   total_cotizaciones: number;
   mape_global: number | null;
   r2_modelo: number;
+  mape_test_modelo: number;
   ahorro_promedio_pct: number | null;
   cotizaciones_cerradas: number;
 }

@@ -11,7 +11,7 @@
 
 ### 1.1 ¿Qué es?
 
-Plataforma web con motor de Machine Learning que predice el costo del flete marítimo (en USD) para importaciones de neumáticos automotrices en la ruta Asia → Puerto del Callao (Perú). El cliente es **JPS Logistic S.A.C.**, una PYME logística peruana.
+Plataforma web con motor de Machine Learning que predice el costo del flete marítimo (en USD) para importaciones de neumáticos automotrices en la ruta China → Puerto del Callao (Perú). El 100% de los registros del dataset tienen origen China; los puertos de Corea, Japón, Hong Kong o Tailandia que aparecen en el catálogo son puertos de **transbordo**, no de origen. El cliente es **JPS Logistic S.A.C.**, una PYME logística peruana.
 
 ### 1.2 Problema que resuelve
 
@@ -156,7 +156,9 @@ CREATE TABLE ports (
     code    VARCHAR(10) UNIQUE NOT NULL,
     name    VARCHAR(150) NOT NULL,
     country VARCHAR(100),
-    region  VARCHAR(50)  -- 'asia', 'callao'
+    region  VARCHAR(50)  -- 'china' (origen) | 'callao' (destino). El alcance
+                         -- real del modelo es China -> Callao; ver
+                         -- DOCUMENTACION_TECNICA.md seccion 4.1.
 );
 
 CREATE TABLE container_types (
@@ -289,7 +291,7 @@ CREATE INDEX idx_audit_created_at ON audit_log(created_at);
 |---|---|---|---|
 | GET | `/api/dashboard/estimated-vs-actual` | Datos para gráfico de barras: flete estimado promedio vs real promedio, últimos 6 meses. | Analista |
 | GET | `/api/dashboard/mape-global` | MAPE global acumulado (todas las cotizaciones cerradas). | Analista |
-| GET | `/api/dashboard/ports-distribution` | Distribución de contenedores por puerto de origen (para pie chart). | Analista |
+| GET | `/api/dashboard/ports-distribution` | Distribución de contenedores por puerto de embarque (para pie chart). | Analista |
 
 ### 5.6 Administración (EP-05: HU-31 a HU-33)
 
@@ -332,7 +334,9 @@ CREATE INDEX idx_audit_created_at ON audit_log(created_at);
 
 Del formulario del usuario:
 
-- `port_origin` — Puerto de origen (categórica: Shanghai, Ningbo, Qingdao, Busan, etc.)
+- `port_origin` — Puerto de **embarque** (categórica: Shanghai, Ningbo, Qingdao, Busan, etc.).
+  El origen siempre es China; Busan, Yokohama o Hong Kong son puertos de transbordo.
+  Esa distinción es la que codifica la feature `ruta_directa`.
 - `port_destination` — Siempre Callao (fijo, pero puede variar en futuras versiones)
 - `container_type` — FCL 20', FCL 40', LCL
 - `weight_kg` — Peso bruto en kilogramos
@@ -393,8 +397,8 @@ SHAP_LABEL_MAP = {
     "ebs_surcharge": "Recargo de emergencia por combustible (EBS)",
     "is_peak_season": "Temporada de alta demanda",
     "month": "Mes del embarque",
-    "port_origin_Shanghai": "Puerto de origen: Shanghái",
-    "port_origin_Ningbo": "Puerto de origen: Ningbo",
+    "port_origin_Shanghai": "Puerto de embarque: Shanghái",
+    "port_origin_Ningbo": "Puerto de embarque: Ningbo",
     "weight_volume_ratio": "Relación peso/volumen",
 }
 ```
@@ -629,7 +633,7 @@ jps-freight-predictor/
 |---|---|---|---|
 | HU-27 | Gráfico barras: Estimado vs Real promedio mensual (6 meses) | Alta | 7 |
 | HU-28 | KPI card: MAPE global (verde ≤15%, rojo >15%) | Alta | 7 |
-| HU-29 | Pie chart: distribución por puerto de origen | Media | 7 |
+| HU-29 | Pie chart: distribución por puerto de embarque | Media | 7 |
 | HU-30 | Exportar historial a Excel o CSV | Media | 7 |
 
 ### EP-05: Mantenimiento y Soporte (Sprint 8)
@@ -685,7 +689,7 @@ jps-freight-predictor/
 
 ## 12. Catálogos Semilla (Seed Data)
 
-### Puertos de origen asiáticos
+### Puertos de embarque (China y puertos de transbordo)
 
 ```
 Shanghai, Ningbo, Qingdao, Busan, Kaohsiung, Laem Chabang, Ho Chi Minh, Tanjung Pelepas, Colombo, Yokohama
