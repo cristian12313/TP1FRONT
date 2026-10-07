@@ -48,7 +48,7 @@ export default function QuotationDetailModal({ item, onClose }: Props) {
               Flete total: <span className="font-semibold">{fmtUsd(item.flete_estimado_usd)} USD</span>
             </p>
             <p className="text-xs text-white/50 mt-1">
-              IC 95%: {fmtUsd(item.ic95_min, 0)} — {fmtUsd(item.ic95_max, 0)}
+              Intervalo 95%: {fmtUsd(item.ic95_min, 0)} — {fmtUsd(item.ic95_max, 0)}
             </p>
           </div>
           <Ship className="absolute -right-4 -bottom-6 w-28 h-28 text-white/5" />

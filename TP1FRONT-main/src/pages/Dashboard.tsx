@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { Quote, Target, Zap, TrendingUp, RefreshCw, AlertTriangle, TrendingDown, CheckCircle } from 'lucide-react';
@@ -169,8 +169,8 @@ export default function Dashboard() {
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
                     {precision.mejora_vs_manual >= 0
-                      ? `Sistema: ${precision.mape_operativo!.toFixed(1)}% vs manual: ${precision.baseline_manual_pct}%`
-                      : `Sistema supera al manual (${precision.baseline_manual_pct}%)`}
+                      ? `Sistema supera al manual: ${precision.mape_operativo!.toFixed(1)}% vs ${precision.baseline_manual_pct}%`
+                      : `Sistema por debajo del manual: ${precision.mape_operativo!.toFixed(1)}% vs ${precision.baseline_manual_pct}%`}
                   </p>
                 </>
               ) : (
@@ -246,14 +246,16 @@ export default function Dashboard() {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h3 className="text-sm font-bold text-slate-700 mb-4">Flete Promedio por Puerto de Embarque (USD)</h3>
         {routeData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={routeData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={routeData} layout="vertical" margin={{ top: 5, right: 90, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+              <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
               <Tooltip formatter={(v: any) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
-              <Bar dataKey="flete" name="Flete Promedio" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="flete" name="Flete Promedio" radius={[0, 4, 4, 0]} minPointSize={2}>
                 {routeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <LabelList dataKey="flete" position="right" style={{ fontSize: 11, fill: '#475569' }}
+                  formatter={(v: any) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

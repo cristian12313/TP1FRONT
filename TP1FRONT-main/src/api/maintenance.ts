@@ -30,10 +30,43 @@ export async function resetMarketRates(): Promise<MarketRates> {
 
 // ── Artifact del modelo ──────────────────────────────────────────────────────
 
+export interface ParticionInfo {
+  criterio: string | null;
+  rango_train: [string, string] | null;
+  rango_val: [string, string] | null;
+  rango_holdout: [string, string] | null;
+  n_train: number | null;
+  n_val: number | null;
+  n_holdout: number | null;
+  pct_holdout: number | null;
+}
+
+/**
+ * Resumen del walk-forward mensual que acompaña al esquema 80/20.
+ *
+ * Se expone junto a `mape_test` y no en su lugar: las dos cifras responden
+ * preguntas distintas y mostrar sólo una induce a error. `mape_test` es el
+ * error de un modelo congelado durante todo el año de holdout; `mape_ponderado`
+ * es el del sistema reentrenado cada mes, que es como se opera.
+ */
+export interface WalkForwardInfo {
+  anio: number | null;
+  meses_evaluados: number | null;
+  mape_ponderado: number | null;
+  mape_sd: number | null;
+  mape_min: number | null;
+  mape_max: number | null;
+  ganancia_de_reentrenar_pp: number | null;
+  coste_del_rezago_sunat_pp: number | null;
+}
+
 export interface ArtifactInfo {
   entrenado_en: string | null;
   cargado: boolean;
   mape_test: number;
+  esquema_particion: string | null;
+  particion: ParticionInfo | null;
+  walk_forward: WalkForwardInfo | null;
   n_puertos: number;
   n_importadores: number;
   n_features: number;

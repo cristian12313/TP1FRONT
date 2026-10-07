@@ -264,11 +264,11 @@ export default function AppLayout() {
                     className="text-[10px] sm:text-xs font-semibold px-2 py-1 bg-red-50 text-red-700 border border-red-200 rounded"
                     title={
                       horizonteCalibradoMeses != null
-                        ? `El intervalo de confianza está calibrado hasta ${horizonteCalibradoMeses} meses de extrapolación; esta cotización excede ese horizonte.`
-                        : 'Esta cotización excede el horizonte con cobertura garantizada del intervalo de confianza.'
+                        ? `El intervalo predictivo está calibrado hasta ${horizonteCalibradoMeses} meses de extrapolación; esta cotización excede ese horizonte.`
+                        : 'Esta cotización excede el horizonte con cobertura calibrada del intervalo predictivo.'
                     }
                   >
-                    IC 95% no garantizado
+                    Intervalo 95% sin calibrar
                   </span>
                 )}
 

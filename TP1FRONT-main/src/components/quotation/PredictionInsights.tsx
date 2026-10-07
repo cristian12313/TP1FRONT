@@ -99,7 +99,7 @@ export default function PredictionInsights({ fleteEstimado, ic95Min, ic95Max, ma
           <span>{usd(ic95Max)}</span>
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
-          Amplitud IC 95%: {usd(amplitud)} (±{usd(margen)}). Mayor dispersión = mayor incertidumbre.
+          Amplitud del intervalo 95%: {usd(amplitud)} (±{usd(margen)}). Mayor dispersión = mayor incertidumbre.
           {ic95Min <= 0 && (
             // El $0 de arriba es el piso FÍSICO del intervalo (un flete no
             // puede ser negativo), no una predicción de flete gratuito. Sin

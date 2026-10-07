@@ -124,7 +124,19 @@ export default function RetrainPanel({
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Última actualización', value: fmtFecha(artifact.entrenado_en) },
-            { label: 'MAPE en test', value: `${artifact.mape_test}%` },
+            // Las dos cifras de error van juntas y etiquetadas. Mostrar sólo una
+            // induce a error: la de holdout describe un modelo congelado todo el
+            // año, la del walk-forward el sistema reentrenado cada mes.
+            { label: 'MAPE holdout (sin reentrenar)', value: `${artifact.mape_test}%` },
+            ...(artifact.walk_forward?.mape_ponderado != null
+              ? [{
+                  label: `MAPE reentrenando cada mes (${artifact.walk_forward.anio ?? ''})`,
+                  value: `${artifact.walk_forward.mape_ponderado}%`,
+                }]
+              : []),
+            ...(artifact.esquema_particion
+              ? [{ label: 'Esquema de partición', value: artifact.esquema_particion.replace(/_/g, '/') }]
+              : []),
             { label: 'Puertos conocidos', value: artifact.n_puertos },
             { label: 'Importadores conocidos', value: artifact.n_importadores },
             { label: 'Features', value: artifact.n_features },
@@ -137,6 +149,26 @@ export default function RetrainPanel({
             </div>
           ))}
         </div>
+      )}
+
+      {artifact?.walk_forward?.mape_ponderado != null && (
+        <p className="mt-3 text-xs text-slate-500 leading-relaxed">
+          El <strong>{artifact.mape_test}%</strong> es el error de este modelo evaluado sobre{' '}
+          {artifact.particion?.rango_holdout
+            ? `${artifact.particion.rango_holdout[0]} → ${artifact.particion.rango_holdout[1]}`
+            : 'el holdout'}{' '}
+          sin volver a entrenarlo: mide cuánto cuesta <em>no</em> reentrenar. El{' '}
+          <strong>{artifact.walk_forward.mape_ponderado}%</strong> sale de reentrenar mes a mes
+          durante {artifact.walk_forward.meses_evaluados ?? 12} meses y es el que describe al
+          sistema tal y como se opera
+          {artifact.walk_forward.ganancia_de_reentrenar_pp != null
+            ? ` (reentrenar vale ${artifact.walk_forward.ganancia_de_reentrenar_pp} puntos)`
+            : ''}
+          {artifact.walk_forward.coste_del_rezago_sunat_pp != null
+            ? `; que la estadística de SUNAT llegue un mes tarde cuesta ${artifact.walk_forward.coste_del_rezago_sunat_pp} puntos`
+            : ''}
+          .
+        </p>
       )}
 
       {/* Progreso */}

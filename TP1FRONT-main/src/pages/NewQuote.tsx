@@ -490,7 +490,7 @@ export default function NewQuote() {
                     Flete total: <span className="font-semibold">${result!.flete_estimado_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                   </p>
                   <p className="text-xs text-white/50 mt-1">
-                    {result!.ic95_calibrado === false ? 'Intervalo (95% NO garantizado)' : 'IC 95%'}: $
+                    {result!.ic95_calibrado === false ? 'Intervalo 95% (sin calibrar)' : 'Intervalo 95%'}: $
                     {result!.ic95_min.toLocaleString('en-US', { maximumFractionDigits: 0 })} — ${result!.ic95_max.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     {result!.ic95_calibrado === false ? (
                       <span className="text-amber-300"> · fuera del horizonte calibrado
