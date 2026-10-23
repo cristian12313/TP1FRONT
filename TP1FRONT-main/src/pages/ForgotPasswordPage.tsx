@@ -4,8 +4,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Ship, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Ship, Mail, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
 import { authApi } from '../api/auth';
+import { mensajeDeError } from '../lib/apiError';
 import Spinner from '../components/shared/Spinner';
 
 const schema = z.object({
@@ -15,6 +16,7 @@ type FormData = z.infer<typeof schema>;
 
 export default function ForgotPasswordPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [apiError, setApiError] = useState('');
 
   const {
     register,
@@ -23,8 +25,17 @@ export default function ForgotPasswordPage() {
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
   const onSubmit = async ({ email }: FormData) => {
-    await authApi.forgotPassword(email);
-    setSubmitted(true);
+    setApiError('');
+    // Antes no habia try/catch: un 429 (límite de solicitudes) o un backend
+    // caído dejaban el formulario sin ningún mensaje. La respuesta de éxito
+    // sigue siendo genérica (no revela si el correo existe); solo se muestran
+    // los errores reales del servidor, que no dependen del correo.
+    try {
+      await authApi.forgotPassword(email);
+      setSubmitted(true);
+    } catch (err) {
+      setApiError(mensajeDeError(err, 'No se pudo enviar la solicitud. Intenta de nuevo.'));
+    }
   };
 
   return (
@@ -74,6 +85,13 @@ export default function ForgotPasswordPage() {
             </motion.div>
           ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+              {apiError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                  <span>{apiError}</span>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
                   Correo electrónico

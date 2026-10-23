@@ -20,8 +20,14 @@ export default function Help() {
               ¿Cómo cotizar un contenedor?
             </h3>
             <p className="text-sm text-slate-600">
-              Ve a la vista "Nueva cotización". Selecciona el <b>Puerto Origen</b>, el <b>Tipo de Contenedor</b> y el <b>Peso (kg)</b> estimado.
-              El destino siempre será "Callao". Una vez llenados estos datos obligatorios, el sistema validará en tiempo real para no dejar campos vacíos. Luego haz clic en "Estimar con XGBoost".
+              Ve a "Nueva Cotización". Elige el <b>Puerto de Embarque</b> e ingresa el <b>Peso Neto (toneladas)</b>, que son
+              obligatorios; si los conoces, añade el <b>Importador</b>, la <b>Cantidad de Unidades</b> y el <b>Periodo de
+              Embarque</b> (semanal, mensual o anual). El destino siempre es Callao (PE). Pulsa "Estimar Flete" para ver el
+              flete estimado con su intervalo predictivo 95% y las variables que más influyeron.
+            </p>
+            <p className="text-sm text-slate-600 mt-2">
+              Para conservarla, escribe un comentario opcional y pulsa "Guardar Cotización": el sistema le asigna un código
+              JPS-AAAAMMDD-XXXX. El PDF para el cliente se descarga con "PDF Oficial" una vez guardada.
             </p>
           </div>
           
@@ -31,8 +37,10 @@ export default function Help() {
               ¿Qué hago si falla la predicción?
             </h3>
             <p className="text-sm text-slate-600">
-              Si el servicio de predicción muestra una alerta asegurando que hay problemas técnicos (HU-14),
-              espera unos instantes e inténtalo nuevamente más tarde. Puede deberse a mantenimiento del predictor.
+              Si aparece el recuadro "Error de Predicción", espera unos instantes y vuelve a pulsar "Estimar Flete": puede
+              deberse a una demora del modelo o a un mantenimiento en curso. Si el problema persiste, avisa al administrador.
+              Revisa también los avisos en ámbar junto al resultado: indican cuando la estimación es solo orientativa (por
+              ejemplo, una fecha que va más allá del último mercado observado).
             </p>
           </div>
 
@@ -42,7 +50,9 @@ export default function Help() {
               ¿Puedo modificar una cotización posterior?
             </h3>
             <p className="text-sm text-slate-600">
-              Los Analistas de Logística pueden editar las cotizaciones que estén pendientes ingresando el "Costo Real" para cerrar cada transacción y poder realizar la comparación predictiva contra la real. Operadores solo pueden agregar notas durante el proceso.
+              El importe estimado de una cotización guardada no se modifica. En "Historial", el Analista y el Administrador
+              pueden registrar el costo real con "Ingresar Costo" para cerrarla; el sistema calcula entonces el error de la
+              estimación. El Operador ve solo sus propias cotizaciones, y el comentario se añade antes de guardarla.
             </p>
           </div>
         </div>

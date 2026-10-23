@@ -11,6 +11,7 @@ import {
   setImportadorActivo, updateMarketRates, updateProgramacion,
 } from '../api/maintenance';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import { mensajeDeError } from '../lib/apiError';
 import CorpusPanel from '../components/maintenance/CorpusPanel';
 import DriftPanel from '../components/maintenance/DriftPanel';
 import RetrainPanel from '../components/maintenance/RetrainPanel';
@@ -54,10 +55,14 @@ const aTonelada = (usdKg: number) => Math.round(usdKg * KG_PER_TON * 100) / 100;
 const fmtFecha = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
-function errorMsg(e: unknown, fallback: string): string {
-  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-  return typeof detail === 'string' ? detail : fallback;
-}
+/** Rango plausible del backend (ml/market_state.py: 0.001-10 USD/kg) en USD/t. */
+const RATE_MIN_T = 1;
+const RATE_MAX_T = 10000;
+
+// El helper local solo aceptaba `detail` de tipo cadena y descartaba los 422 de
+// validación (un array), mostrando el texto de respaldo. `mensajeDeError` los
+// compone y además distingue la falta de conexión.
+const errorMsg = mensajeDeError;
 
 export default function Maintenance() {
   // ── Objetivos de precio (mercado_lag1/2/3) ────────────────────────────────
@@ -125,7 +130,20 @@ export default function Maintenance() {
         eraEnCurso.current = false;
         getMarketRates().then(aplicarRates).catch(() => undefined);
         bump();
-        toast.success('Ingesta de Aduanet finalizada.');
+        // El aviso depende del resultado real: antes decía "finalizada" aunque
+        // el barrido hubiera fallado.
+        cargarIngesta().then(d => {
+          const fallo = d?.progreso?.fallo;
+          const errores = d?.ultimo_resultado?.n_errores ?? 0;
+          if (fallo) {
+            // Abortó sin guardar resultado: ultimo_resultado es el de antes.
+            toast.error(`La ingesta de Aduanet no se completó: ${fallo}`);
+          } else if (errores > 0) {
+            toast.warning(`Ingesta de Aduanet finalizada con ${errores} consultas fallidas.`);
+          } else {
+            toast.success('Ingesta de Aduanet finalizada.');
+          }
+        });
       }
       return;
     }
@@ -138,6 +156,13 @@ export default function Maintenance() {
     const { lag1, lag2, lag3, vigente_hasta } = editRates;
     if (lag1 <= 0 || lag2 <= 0 || lag3 <= 0) {
       toast.error('Todos los precios deben ser valores positivos.');
+      return;
+    }
+    // Mismo rango que valida el backend ([0.001, 10] USD/kg), expresado en la
+    // unidad del formulario. Antes un valor > 10,000 llegaba al servidor, volvía
+    // como 422 de Pydantic y la pantalla decía "Verifique que sea administrador".
+    if ([lag1, lag2, lag3].some(v => v < RATE_MIN_T || v > RATE_MAX_T)) {
+      toast.error('Los precios deben estar entre 1 y 10,000 USD/t (0.001 a 10 USD/kg).');
       return;
     }
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(vigente_hasta)) {
@@ -156,7 +181,7 @@ export default function Maintenance() {
       bump();
       toast.success('Objetivos de precio actualizados. El modelo usará estos valores inmediatamente.');
     } catch (e) {
-      toast.error(errorMsg(e, 'No se pudieron guardar los objetivos. Verifique que sea administrador.'));
+      toast.error(errorMsg(e, 'No se pudieron guardar los objetivos. Intente de nuevo.'));
     } finally {
       setSavingRates(false);
     }
@@ -180,7 +205,12 @@ export default function Maintenance() {
     try {
       await runIngesta({ aplicar });
       toast.success('Barrido de Aduanet iniciado. Puede tardar varios minutos.');
-      await cargarIngesta();
+      // Si el barrido abortó antes de este primer GET, el sondeo nunca ve
+      // en_curso=true y el efecto de arriba no avisaría: se avisa aquí.
+      const d = await cargarIngesta();
+      if (d && !d.progreso?.en_curso && d.progreso?.fallo) {
+        toast.error(`La ingesta de Aduanet no se completó: ${d.progreso.fallo}`);
+      }
     } catch (e) {
       toast.error(errorMsg(e, 'No se pudo iniciar el barrido.'));
     } finally {

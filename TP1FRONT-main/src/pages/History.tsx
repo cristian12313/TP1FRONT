@@ -14,12 +14,28 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { listQuotations, updateActualCost, getPdfUrl, QuotationItem } from '../api/quotations';
+import { listQuotations, updateActualCost, downloadQuotationPdf, QuotationItem } from '../api/quotations';
+import { getPorts, Port } from '../api/catalogs';
 import { useAuthStore } from '../store/authStore';
 import QuotationDetailModal from '../components/quotation/QuotationDetailModal';
 
+/**
+ * Fecha AAAA-MM-DD en la hora del negocio (Lima). `created_at` llega en UTC y
+ * cortarlo con slice(0, 10) mostraba el día siguiente para lo creado por la
+ * noche; además, el filtro "Desde/Hasta" del backend ya interpreta los días en
+ * hora de Lima (app/config.py → BUSINESS_UTC_OFFSET_HOURS).
+ */
+const fechaLocal = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+
+/** Valor CSV: se entrecomilla si contiene coma, comillas o salto de línea. */
+const celdaCsv = (v: unknown) => {
+  const s = v == null ? '' : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
 export default function HistoryPage() {
-  const { accessToken, user } = useAuthStore();
+  const { user } = useAuthStore();
   const isAdminOrAnalista = user?.role === 'admin' || user?.role === 'analista';
 
   const [items, setItems] = useState<QuotationItem[]>([]);
@@ -86,54 +102,32 @@ export default function HistoryPage() {
   };
 
   const handleDownloadPdf = (item: QuotationItem) => {
-    const url = getPdfUrl(item.id);
-    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async r => {
-        // H-17: sin comprobar `r.ok`, un 403 o un 500 se convertia en blob y se
-        // descargaba como "cotizacion_X.pdf" — un fichero de 20 bytes con el
-        // texto "Internal Server Error" dentro.
-        if (!r.ok) {
-          let detalle = '';
-          try {
-            const cuerpo = await r.json();
-            detalle = typeof cuerpo?.detail === 'string' ? cuerpo.detail : '';
-          } catch { /* la respuesta no era JSON */ }
-          throw new Error(detalle || `El servidor respondio ${r.status}.`);
-        }
-        return r.blob();
-      })
-      .then(blob => {
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = `cotizacion_${item.code}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(blobUrl);
-      })
+    downloadQuotationPdf(item.id, item.code)
       .catch((e: Error) => toast.error(e.message || 'No se pudo descargar el PDF.'));
   };
 
   const handleExportCsv = () => {
     if (items.length === 0) return;
-    const headers = ['Código', 'Fecha', 'Puerto Origen', 'Contenedor', 'Peso (kg)', 'Estimado (USD)', 'IC Min', 'IC Max', 'Estado', 'Costo Real'];
+    const headers = ['Código', 'Fecha', 'Puerto Origen', 'Contenedor', 'Peso (kg)', 'Estimado (USD)', 'IP 95% mín', 'IP 95% máx', 'Estado', 'Costo Real'];
     const rows = items.map(i => [
-      i.code, i.created_at.slice(0, 10),
+      i.code, fechaLocal(i.created_at),
       i.puerto_origen, i.tipo_contenedor, i.peso_kg,
       i.flete_estimado_usd, i.ic95_min, i.ic95_max,
       i.estado, i.costo_real_usd ?? '',
     ]);
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = [headers, ...rows].map(r => r.map(celdaCsv).join(',')).join('\r\n');
+    // BOM UTF-8: sin él, Excel abre el archivo como ANSI y "Código" sale como "CÃ³digo".
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'historial_cotizaciones.csv';
     link.click();
   };
 
-  // Orígenes únicos de los datos cargados (para el filtro)
-  const origins = Array.from(new Set(items.map(i => i.puerto_origen)));
+  // Orígenes del filtro: el catálogo completo de puertos de embarque, no solo los
+  // de la página cargada (que se reducían al origen ya filtrado).
+  const [ports, setPorts] = useState<Port[]>([]);
+  useEffect(() => { getPorts().then(setPorts).catch(() => setPorts([])); }, []);
 
   return (
     <div className="space-y-6">
@@ -164,14 +158,14 @@ export default function HistoryPage() {
             <select value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}
               className="bg-transparent text-sm font-semibold text-slate-600 outline-none">
               <option value="">Todos los Orígenes</option>
-              {origins.map(o => <option key={o} value={o}>{o}</option>)}
+              {ports.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
             </select>
           </div>
 
           <button onClick={handleExportCsv}
             className="p-2 bg-white border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-all flex items-center gap-2">
             <Download size={16} />
-            <span className="text-sm font-semibold hidden sm:inline">CSV</span>
+            <span className="text-sm font-semibold">CSV</span>
           </button>
 
           <button onClick={fetchData}
@@ -208,7 +202,7 @@ export default function HistoryPage() {
                   <tr key={quote.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-5 py-4">
                       <span className="font-mono text-xs font-semibold text-slate-700 block">{quote.code}</span>
-                      <span className="text-[11px] text-slate-400 mt-1 block">{quote.created_at.slice(0, 10)}</span>
+                      <span className="text-[11px] text-slate-400 mt-1 block">{fechaLocal(quote.created_at)}</span>
                     </td>
                     <td className="px-5 py-4">
                       <p className="font-bold text-sm text-slate-700">{quote.puerto_origen} → Callao</p>

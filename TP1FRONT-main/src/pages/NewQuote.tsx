@@ -11,10 +11,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
-import { estimateFreight, PredictionResponse } from '../api/predictions';
-import { createQuotation, getPdfUrl } from '../api/quotations';
+import { estimateFreight, PredictionRequest, PredictionResponse } from '../api/predictions';
+import { createQuotation, downloadQuotationPdf } from '../api/quotations';
 import { getPorts, getAppConfig, getImportadores, Port, Importador } from '../api/catalogs';
-import { useAuthStore } from '../store/authStore';
 import { usePredictionStatusStore } from '../store/predictionStatusStore';
 import PredictionInsights from '../components/quotation/PredictionInsights';
 import WeekPicker from '../components/shared/WeekPicker';
@@ -73,7 +72,6 @@ function buildFechaEmbarque(tipo: PeriodoTipo, valor: string): string | undefine
 }
 
 export default function NewQuote() {
-  const { accessToken } = useAuthStore();
   const setPredictionStatus = usePredictionStatusStore(s => s.setStatus);
   const clearPredictionStatus = usePredictionStatusStore(s => s.clearStatus);
 
@@ -96,7 +94,17 @@ export default function NewQuote() {
   // Estado
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<PredictionResponse | null>(null);
+  // Peso (t) con el que se calculó `result`: el precio por tonelada no debe
+  // cambiar si el usuario edita el campo después de estimar.
+  const [pesoEstimado, setPesoEstimado] = useState<number>(0);
+  // Inputs EXACTOS con los que se calculó `result`. "Guardar Cotización" los
+  // reenvía tal cual: si el usuario edita el formulario después de estimar,
+  // se guarda lo que ve en la tarjeta de resultado, no los valores nuevos.
+  const [entradaEstimada, setEntradaEstimada] = useState<PredictionRequest | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+  // Código JPS-AAAAMMDD-XXXX de la cotización guardada: da nombre al PDF, igual
+  // que en el Historial (antes se usaba el UUID interno).
+  const [savedCode, setSavedCode] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -142,18 +150,23 @@ export default function NewQuote() {
     setIsLoading(true);
     setResult(null);
     setSavedId(null);
+    setSavedCode(null);
     setApiError('');
 
+    const entrada: PredictionRequest = {
+      puerto_origen: origen,
+      importador: importador || undefined,
+      peso_kg: Number(peso) * KG_PER_TON,
+      unidades: unidades ? Number(unidades) : undefined,
+      fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
+      periodo: periodoValor ? periodoTipo : undefined,
+    };
+
     try {
-      const data = await estimateFreight({
-        puerto_origen: origen,
-        importador: importador || undefined,
-        peso_kg: Number(peso) * KG_PER_TON,
-        unidades: unidades ? Number(unidades) : undefined,
-        fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
-        periodo: periodoValor ? periodoTipo : undefined,
-      });
+      const data = await estimateFreight(entrada);
       setResult(data);
+      setEntradaEstimada(entrada);
+      setPesoEstimado(Number(peso));
       // Los badges de estado (MAPE, tiempo, calibración del IC) viven en el
       // header global — ver store/predictionStatusStore.ts — para que nunca
       // puedan quedar visualmente pegados a la barra superior de la página.
@@ -174,23 +187,21 @@ export default function NewQuote() {
   };
 
   const handleSave = async () => {
-    if (!result) return;
+    if (!result || !entradaEstimada) return;
     setIsSaving(true);
     try {
       // Se envían SOLO los inputs: el backend recalcula la estimación con el
       // modelo y guarda su propio resultado, de modo que una cotización guardada
-      // es siempre prueba de lo que el modelo dijo para esos inputs.
+      // es siempre prueba de lo que el modelo dijo para esos inputs. Son los
+      // inputs de la estimación mostrada (`entradaEstimada`), no los del
+      // formulario actual, que el usuario pudo editar después de estimar.
       const q = await createQuotation({
-        puerto_origen: origen,
-        importador: importador || undefined,
-        peso_kg: Number(peso) * KG_PER_TON,
-        unidades: unidades ? Number(unidades) : undefined,
-        fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
-        periodo: periodoValor ? periodoTipo : undefined,
+        ...entradaEstimada,
         comentario: comentario || undefined,
       });
       setSavedId(q.id);
-      toast.success('Cotización guardada exitosamente');
+      setSavedCode(q.code);
+      toast.success(`Cotización guardada exitosamente: ${q.code}`);
     } catch (err: unknown) {
       toast.error(mensajeDeError(err, 'No se pudo guardar la cotización. Intente de nuevo.'));
     } finally {
@@ -203,40 +214,15 @@ export default function NewQuote() {
       toast.warning('Guarde la cotización primero para descargar el PDF.');
       return;
     }
-    const url = getPdfUrl(savedId);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `cotizacion_${savedId}.pdf`);
-    // Agregar token en header no es posible con <a>, usamos fetch
-    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async r => {
-        // H-17: sin comprobar `r.ok`, un 403 o un 500 se convertia en blob y se
-        // descargaba como "cotizacion_X.pdf" — un fichero de 20 bytes con el
-        // texto "Internal Server Error" dentro.
-        if (!r.ok) {
-          let detalle = '';
-          try {
-            const cuerpo = await r.json();
-            detalle = typeof cuerpo?.detail === 'string' ? cuerpo.detail : '';
-          } catch { /* la respuesta no era JSON */ }
-          throw new Error(detalle || `El servidor respondio ${r.status}.`);
-        }
-        return r.blob();
-      })
-      .then(blob => {
-        const blobUrl = URL.createObjectURL(blob);
-        link.href = blobUrl;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(blobUrl);
-      })
+    downloadQuotationPdf(savedId, savedCode ?? savedId)
       .catch((e: Error) => toast.error(e.message || 'No se pudo generar el PDF.'));
   };
 
   const resetForm = () => {
     setResult(null);
+    setEntradaEstimada(null);
     setSavedId(null);
+    setSavedCode(null);
     setApiError('');
     setComentario('');
     setOrigen('');
@@ -481,8 +467,8 @@ export default function NewQuote() {
                 <div className="relative z-10">
                   <p className="text-sm text-white/70 mb-1">Precio Estimado por Tonelada (USD/t)</p>
                   <h2 className="text-5xl font-bold tracking-tight">
-                    ${(peso && Number(peso) > 0
-                        ? result!.flete_estimado_usd / Number(peso)
+                    ${(pesoEstimado > 0
+                        ? result!.flete_estimado_usd / pesoEstimado
                         : 0
                       ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </h2>
@@ -490,7 +476,7 @@ export default function NewQuote() {
                     Flete total: <span className="font-semibold">${result!.flete_estimado_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                   </p>
                   <p className="text-xs text-white/50 mt-1">
-                    {result!.ic95_calibrado === false ? 'Intervalo 95% (sin calibrar)' : 'Intervalo 95%'}: $
+                    {result!.ic95_calibrado === false ? 'Intervalo predictivo 95% (sin calibrar)' : 'Intervalo predictivo 95%'}: $
                     {result!.ic95_min.toLocaleString('en-US', { maximumFractionDigits: 0 })} — ${result!.ic95_max.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     {result!.ic95_calibrado === false ? (
                       <span className="text-amber-300"> · fuera del horizonte calibrado
@@ -555,7 +541,7 @@ export default function NewQuote() {
                   {savedId && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       className="bg-green-50 text-green-700 p-3 rounded-lg flex items-center justify-center gap-2 text-sm font-semibold border border-green-200">
-                      <CheckCircle2 size={16} /> Cotización Guardada
+                      <CheckCircle2 size={16} /> Cotización Guardada{savedCode ? ` · ${savedCode}` : ''}
                     </motion.div>
                   )}
                   <div className="flex gap-3">

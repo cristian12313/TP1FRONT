@@ -2,12 +2,27 @@ import React from 'react';
 import { X, Ship } from 'lucide-react';
 import { QuotationItem } from '../../api/quotations';
 import PredictionInsights from './PredictionInsights';
+import { fechaASemanaISO } from '../../lib/semanaISO';
 
 const KG_PER_TON = 1000;
 
 interface Props {
   item: QuotationItem;
   onClose: () => void;
+}
+
+/** Texto del periodo cotizado (mismo formato que el PDF). `fecha` es solo la
+ *  fecha representativa del periodo; sin periodo registrado devuelve null. */
+function periodoTexto(periodo: string | null | undefined, fecha: string | null): string | null {
+  if (!periodo || !fecha) return null;
+  const [anio, mes, dia] = fecha.split('-');
+  if (periodo === 'anual') return `Anual ${anio}`;
+  if (periodo === 'mensual') return `Mensual ${mes}/${anio}`;
+  if (periodo === 'semanal') {
+    const [anioIso, semana] = fechaASemanaISO(fecha);
+    return `Semanal: semana ${semana} de ${anioIso} (desde ${dia}/${mes}/${anio})`;
+  }
+  return null;
 }
 
 const fmtUsd = (v: number, dec = 2) =>
@@ -21,6 +36,7 @@ const fmtUsd = (v: number, dec = 2) =>
 export default function QuotationDetailModal({ item, onClose }: Props) {
   const toneladas = item.peso_kg / KG_PER_TON;
   const precioTon = toneladas > 0 ? item.flete_estimado_usd / toneladas : 0;
+  const periodo = periodoTexto(item.periodo, item.fecha_embarque);
 
   return (
     <div
@@ -48,7 +64,7 @@ export default function QuotationDetailModal({ item, onClose }: Props) {
               Flete total: <span className="font-semibold">{fmtUsd(item.flete_estimado_usd)} USD</span>
             </p>
             <p className="text-xs text-white/50 mt-1">
-              Intervalo 95%: {fmtUsd(item.ic95_min, 0)} — {fmtUsd(item.ic95_max, 0)}
+              Intervalo predictivo 95%: {fmtUsd(item.ic95_min, 0)} — {fmtUsd(item.ic95_max, 0)}
             </p>
           </div>
           <Ship className="absolute -right-4 -bottom-6 w-28 h-28 text-white/5" />
@@ -63,8 +79,12 @@ export default function QuotationDetailModal({ item, onClose }: Props) {
             <Detalle label="Peso Neto" value={`${toneladas.toLocaleString('en-US', { maximumFractionDigits: 3 })} t`} />
             {item.unidades != null && <Detalle label="Unidades" value={String(item.unidades)} />}
             {item.tipo_contenedor && <Detalle label="Contenedor" value={item.tipo_contenedor} />}
-            {item.fecha_embarque && <Detalle label="Fecha embarque" value={item.fecha_embarque} />}
-            <Detalle label="Estado" value={item.estado} />
+            {periodo
+              ? <Detalle label="Periodo de embarque" value={periodo} />
+              : item.fecha_embarque && <Detalle label="Fecha embarque" value={item.fecha_embarque} />}
+            {/* Mismo rótulo que la tabla del Historial; el valor interno
+                "Cerrada con Costo Real" solo viaja en la API y el CSV. */}
+            <Detalle label="Estado" value={item.estado === 'Pendiente' ? 'Pendiente' : 'Cerrada'} />
             {item.usuario_nombre && <Detalle label="Operador" value={item.usuario_nombre} />}
           </div>
 

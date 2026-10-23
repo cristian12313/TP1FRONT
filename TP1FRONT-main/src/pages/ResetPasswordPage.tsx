@@ -4,9 +4,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Ship, Lock, ArrowLeft, CheckCircle, Eye, EyeOff } from 'lucide-react';
-import { toast } from 'sonner';
+import { Ship, Lock, ArrowLeft, CheckCircle, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { authApi } from '../api/auth';
+import { mensajeDeError } from '../lib/apiError';
 import Spinner from '../components/shared/Spinner';
 
 const schema = z
@@ -30,6 +30,8 @@ export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [showPass, setShowPass] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [apiError, setApiError] = useState('');
+  const [enlaceInvalido, setEnlaceInvalido] = useState(false);
 
   const {
     register,
@@ -38,12 +40,24 @@ export default function ResetPasswordPage() {
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
   const onSubmit = async ({ new_password }: FormData) => {
+    setApiError('');
+    setEnlaceInvalido(false);
     try {
       await authApi.resetPassword(token!, new_password);
       setSuccess(true);
       setTimeout(() => navigate('/login'), 3000);
-    } catch {
-      toast.error('El enlace es inválido o ha expirado. Solicita uno nuevo.');
+    } catch (err) {
+      // Antes cualquier fallo (un 429 por exceso de intentos, la política de
+      // contraseña, el backend caído) se mostraba como "enlace inválido". Solo
+      // el 400 del token lo es de verdad; el resto muestra el motivo real.
+      const e = err as { response?: { status?: number; data?: { detail?: unknown } } };
+      const detalle = e?.response?.data?.detail;
+      if (e?.response?.status === 400 && typeof detalle === 'string' && detalle.startsWith('El enlace')) {
+        setEnlaceInvalido(true);
+        setApiError('El enlace es inválido o ha expirado. Solicita uno nuevo.');
+      } else {
+        setApiError(mensajeDeError(err, 'No se pudo restablecer la contraseña. Intenta de nuevo.'));
+      }
     }
   };
 
@@ -98,6 +112,20 @@ export default function ResetPasswordPage() {
             </motion.div>
           ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+              {apiError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                  <div>
+                    <span>{apiError}</span>
+                    {enlaceInvalido && (
+                      <Link to="/forgot-password" className="block mt-1 font-bold text-accent hover:underline">
+                        Solicitar nuevo enlace
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Nueva contraseña */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">

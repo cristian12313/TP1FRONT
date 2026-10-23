@@ -60,6 +60,18 @@ export default function Dashboard() {
   const originData = distribucion_origen.map(o => ({ name: o.origen, value: o.cantidad }));
   const trendData = tendencia.map(t => ({ mes: t.mes, estimado: t.estimado, real: t.real }));
 
+  // "Vs. Método Manual" = MAPE operativo − baseline, calculado sobre el MAPE que
+  // se muestra (1 decimal). Con el valor de 2 decimales de la API, 25.04 se veía
+  // "25.0%" en rojo con "+0.0pp", y 25.00 salía "-0.0pp".
+  const mapeVisible = precision?.mape_operativo != null
+    ? Number(precision.mape_operativo.toFixed(1)) : null;
+  const difManualPp = mapeVisible != null && precision
+    ? Math.round((mapeVisible - precision.baseline_manual_pct) * 10) / 10 : null;
+  const superaManual = difManualPp != null && difManualPp <= 0;
+  const difManualTexto = difManualPp == null ? ''
+    : difManualPp === 0 ? '0.0pp'
+    : `${difManualPp < 0 ? '-' : '+'}${Math.abs(difManualPp).toFixed(1)}pp`;
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -104,9 +116,9 @@ export default function Dashboard() {
           icon={Zap}
         />
         <KPICard
-          title="Ahorro Promedio"
+          title="Sesgo Promedio"
           value={kpis.ahorro_promedio_pct != null ? `${kpis.ahorro_promedio_pct.toFixed(1)}%` : 'Sin datos'}
-          subtext="vs costo real"
+          subtext="estimado vs costo real (+ sobreestima)"
           icon={TrendingUp}
         />
       </div>
@@ -155,22 +167,22 @@ export default function Dashboard() {
             {/* Vs baseline manual */}
             <div className="bg-slate-50 rounded-lg p-4">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Vs. Método Manual JPS</p>
-              {precision.mejora_vs_manual !== null ? (
+              {difManualPp !== null ? (
                 <>
                   <div className="flex items-center gap-2">
-                    {precision.mejora_vs_manual >= 0 ? (
+                    {superaManual ? (
                       <CheckCircle size={18} className="text-green-500 shrink-0" />
                     ) : (
                       <TrendingDown size={18} className="text-red-500 shrink-0" />
                     )}
-                    <p className={`text-2xl font-bold ${precision.mejora_vs_manual >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {precision.mejora_vs_manual >= 0 ? '-' : '+'}{Math.abs(precision.mejora_vs_manual).toFixed(1)}pp
+                    <p className={`text-2xl font-bold ${superaManual ? 'text-green-600' : 'text-red-600'}`}>
+                      {difManualTexto}
                     </p>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    {precision.mejora_vs_manual >= 0
-                      ? `Sistema supera al manual: ${precision.mape_operativo!.toFixed(1)}% vs ${precision.baseline_manual_pct}%`
-                      : `Sistema por debajo del manual: ${precision.mape_operativo!.toFixed(1)}% vs ${precision.baseline_manual_pct}%`}
+                    {superaManual
+                      ? `Sistema supera al manual: ${mapeVisible!.toFixed(1)}% vs ${precision.baseline_manual_pct}%`
+                      : `Sistema por debajo del manual: ${mapeVisible!.toFixed(1)}% vs ${precision.baseline_manual_pct}%`}
                   </p>
                 </>
               ) : (
@@ -214,7 +226,9 @@ export default function Dashboard() {
                 <Tooltip formatter={(v: any) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 0 })}`} />
                 <Legend />
                 <Line type="monotone" dataKey="estimado" name="Estimado" stroke="#0B3D5C" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="real" name="Real" stroke="#F26B1F" strokeWidth={2} dot={false} strokeDasharray="4 2" />
+                {/* Con dot={false}, un mes con costo real rodeado de meses sin él
+                    no dibujaba nada: la serie se interrumpe, pero el punto se ve. */}
+                <Line type="monotone" dataKey="real" name="Real" stroke="#F26B1F" strokeWidth={2} dot={{ r: 3, fill: '#F26B1F', strokeDasharray: '0' }} strokeDasharray="4 2" />
               </LineChart>
             </ResponsiveContainer>
           ) : (

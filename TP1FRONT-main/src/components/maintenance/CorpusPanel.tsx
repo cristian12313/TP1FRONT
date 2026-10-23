@@ -149,7 +149,12 @@ export default function CorpusPanel({ onCambio }: { onCambio: () => void }) {
             accept=".csv"
             id="corpus-upload"
             className="hidden"
-            onChange={e => elegir(e.target.files?.[0] ?? null)}
+            onChange={e => {
+              elegir(e.target.files?.[0] ?? null);
+              // Sin vaciar el input, volver a elegir el MISMO archivo no dispara
+              // `change` y los botones de análisis no reaparecen.
+              e.target.value = '';
+            }}
           />
           <label
             htmlFor="corpus-upload"
@@ -198,12 +203,20 @@ export default function CorpusPanel({ onCambio }: { onCambio: () => void }) {
         <div className={`mt-4 rounded-lg border p-4 ${
           validacion.valido ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-200'
         }`}>
+          {/* Un archivo válido sin filas nuevas decía "se puede incorporar"
+              con el botón "Incorporar al corpus" deshabilitado. */}
           <div className="flex items-center gap-2 mb-3">
-            {validacion.valido
-              ? <CheckCircle2 size={16} className="text-emerald-600" />
-              : <XCircle size={16} className="text-red-600" />}
+            {!validacion.valido
+              ? <XCircle size={16} className="text-red-600" />
+              : puedeIncorporar
+                ? <CheckCircle2 size={16} className="text-emerald-600" />
+                : <AlertCircle size={16} className="text-amber-600" />}
             <p className="text-sm font-semibold text-slate-700">
-              {validacion.valido ? 'El archivo se puede incorporar' : 'El archivo no se puede incorporar'}
+              {!validacion.valido
+                ? 'El archivo no se puede incorporar'
+                : puedeIncorporar
+                  ? 'El archivo se puede incorporar'
+                  : 'El archivo no aporta filas nuevas al corpus'}
             </p>
           </div>
 

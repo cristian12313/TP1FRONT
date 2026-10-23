@@ -15,9 +15,13 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '../../hooks/useAuth';
 import { usePredictionStatusStore } from '../../store/predictionStatusStore';
-import type { UserRole } from '../../types';
+import { ROLE_LABELS, type UserRole } from '../../types';
 
 const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutos
+// Última actividad del usuario en CUALQUIER pestaña de este navegador.
+const CLAVE_ACTIVIDAD = 'jps-ultima-actividad';
+// mousemove dispara decenas de eventos por segundo: basta con anotar cada 5 s.
+const MARCA_ACTIVIDAD_MS = 5000;
 
 interface NavItem {
   path: string;
@@ -39,11 +43,12 @@ const NAV_ITEMS: NavItem[] = [
 const BREAKPOINT_ESCRITORIO = 1024;
 
 export default function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, logoutLocal } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ultimaMarca = useRef(0);
 
   /**
    * H-15. La barra lateral era fija de 240 px sin ninguna variante móvil: a
@@ -82,20 +87,58 @@ export default function AppLayout() {
     usePredictionStatusStore();
 
   // ── Cierre por inactividad 30 min (HU-04) ───────────────────────────────────
-  const resetTimer = () => {
+  // Solo cierra la sesión de este navegador; el cierre manual ("Cerrar Sesión")
+  // sí invalida todos los tokens en el servidor.
+  // La actividad se comparte entre las pestañas del navegador: antes cada una
+  // tenía su propio temporizador, y una pestaña olvidada borraba la sesión
+  // guardada mientras el usuario trabajaba en otra.
+  const marcarActividad = () => {
+    const ahora = Date.now();
+    if (ahora - ultimaMarca.current < MARCA_ACTIVIDAD_MS) return;
+    ultimaMarca.current = ahora;
+    try { localStorage.setItem(CLAVE_ACTIVIDAD, String(ahora)); } catch { /* sin storage: vale la marca local */ }
+  };
+
+  const ultimaActividad = () => {
+    let compartida = 0;
+    try { compartida = Number(localStorage.getItem(CLAVE_ACTIVIDAD)) || 0; } catch { /* sin storage */ }
+    return Math.max(compartida, ultimaMarca.current);
+  };
+
+  const programarCierre = (esperaMs: number) => {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
-    inactivityTimer.current = setTimeout(async () => {
+    inactivityTimer.current = setTimeout(() => {
+      const restante = INACTIVITY_MS - (Date.now() - ultimaActividad());
+      if (restante > 0) {
+        programarCierre(restante); // otra pestaña tuvo actividad
+        return;
+      }
       toast.error('Sesión cerrada por inactividad.');
-      await logout();
-    }, INACTIVITY_MS);
+      logoutLocal();
+    }, esperaMs);
   };
 
   useEffect(() => {
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-    events.forEach((e) => window.addEventListener(e, resetTimer));
-    resetTimer();
+    const alActuar = () => marcarActividad();
+    events.forEach((e) => window.addEventListener(e, alActuar));
+    ultimaMarca.current = 0;
+    marcarActividad();
+    programarCierre(INACTIVITY_MS);
+
+    // Si otra pestaña cierra la sesión (por inactividad o "Cerrar Sesión"),
+    // esta también sale: antes seguía operando con los tokens en memoria.
+    const alCambiarStorage = (ev: StorageEvent) => {
+      if (ev.key !== 'jps-auth') return;
+      let sigueAbierta = false;
+      try { sigueAbierta = !!JSON.parse(ev.newValue ?? 'null')?.state?.refreshToken; } catch { /* valor ilegible */ }
+      if (!sigueAbierta) logoutLocal();
+    };
+    window.addEventListener('storage', alCambiarStorage);
+
     return () => {
-      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      events.forEach((e) => window.removeEventListener(e, alActuar));
+      window.removeEventListener('storage', alCambiarStorage);
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
     };
   }, []);
@@ -143,7 +186,7 @@ export default function AppLayout() {
                 </h1>
               </div>
               <span className="text-[10px] text-white/50 mt-1 uppercase tracking-widest font-semibold">
-                JPS Logistic S.A.C.
+                Importador del caso
               </span>
             </motion.div>
           )}
@@ -196,7 +239,7 @@ export default function AppLayout() {
                   <div className="flex-1 overflow-hidden text-left">
                     <p className="text-xs font-bold truncate">{user.name}</p>
                     <p className="text-[10px] text-white/40 truncate uppercase font-semibold">
-                      {user.role}
+                      {ROLE_LABELS[user.role as UserRole] ?? user.role}
                     </p>
                   </div>
                 </div>
@@ -268,7 +311,7 @@ export default function AppLayout() {
                         : 'Esta cotización excede el horizonte con cobertura calibrada del intervalo predictivo.'
                     }
                   >
-                    Intervalo 95% sin calibrar
+                    Intervalo predictivo 95% sin calibrar
                   </span>
                 )}
 

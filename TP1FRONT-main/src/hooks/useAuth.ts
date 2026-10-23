@@ -23,5 +23,13 @@ export function useAuth() {
     }
   };
 
-  return { user, accessToken, isAuthenticated, login, logout };
+  // Cierre solo en ESTE navegador (HU-04-2, inactividad). No llama a
+  // /api/auth/logout: ese endpoint sube `token_version` y expulsaría también
+  // las sesiones del usuario en otros dispositivos.
+  const logoutLocal = () => {
+    clearAuth();
+    navigate('/login');
+  };
+
+  return { user, accessToken, isAuthenticated, login, logout, logoutLocal };
 }

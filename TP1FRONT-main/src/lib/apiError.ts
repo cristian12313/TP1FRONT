@@ -56,6 +56,14 @@ export function mensajeDeError(e: unknown, fallback: string): string {
     if (partes.length) return partes.join(' · ');
   }
 
+  // Un 5xx SIN `detail` no viene de FastAPI (que siempre lo envía): es el proxy
+  // de Vite o la pasarela del despliegue diciendo que el backend no responde.
+  // Se muestra lo mismo que cuando no hay respuesta, para que el usuario vea el
+  // mismo texto en local y desplegado (HU-15-1).
+  if ((err.response?.status ?? 0) >= 500) {
+    return 'No se pudo conectar con el servidor. Verifica que el backend esté activo.';
+  }
+
   if (err.response?.status === 403) return 'No tienes permisos para esta acción.';
   if (err.response?.status === 429) return 'Demasiadas solicitudes. Espera un momento.';
 

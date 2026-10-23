@@ -127,12 +127,10 @@ export default function LoginPage() {
             )}
           </div>
 
-          {/* Recordarme + ¿Olvidaste? */}
-          <div className="flex items-center justify-between">
-            <label className="flex items-center text-xs text-slate-500 cursor-pointer select-none">
-              <input type="checkbox" className="mr-2 rounded border-slate-300 text-accent focus:ring-accent" />
-              Recordarme
-            </label>
+          {/* ¿Olvidaste? — el checkbox "Recordarme" se quitó: no estaba conectado
+              a nada y la sesión siempre se conserva en el navegador hasta que se
+              cierra (store/authStore.ts, persist en localStorage). */}
+          <div className="flex items-center justify-end">
             <Link
               to="/forgot-password"
               className="text-xs font-bold text-accent hover:underline"

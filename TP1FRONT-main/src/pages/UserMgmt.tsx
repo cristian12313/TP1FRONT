@@ -211,7 +211,7 @@ export default function UserMgmt() {
                         <div className="flex justify-center">
                           <span className={`flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${badgeRol(user.role)}`}>
                             <Shield size={10} className="mr-1" />
-                            {user.role}
+                            {ROLE_LABELS[user.role as UserRole] ?? user.role}
                           </span>
                         </div>
                       </td>
@@ -423,7 +423,7 @@ function UserModal({
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Contraseña</label>
               <input
                 type="password" value={password} onChange={e => setPassword(e.target.value)}
-                placeholder="Mínimo 8 caracteres, una mayúscula y un número"
+                placeholder="Mínimo 8 caracteres, una mayúscula y un número."
                 className={`w-full px-4 py-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-accent/50 ${errores.password ? 'border-red-400' : 'border-slate-200'}`}
               />
               {errores.password && <p className="text-xs text-red-500">{errores.password}</p>}

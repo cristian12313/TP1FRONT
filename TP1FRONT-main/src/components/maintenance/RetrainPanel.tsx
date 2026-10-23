@@ -176,7 +176,7 @@ export default function RetrainPanel({
         <div className="mt-5 border border-accent/30 bg-accent/5 rounded-lg p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
             <Loader2 size={16} className="animate-spin text-accent" />
-            Reentrenando… paso {prog?.paso ?? 0} de {prog?.total_pasos ?? 2}
+            Reentrenando… paso {prog?.paso ?? 0} de {prog?.total_pasos ?? 3}
           </div>
           <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
             <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
@@ -315,9 +315,9 @@ export default function RetrainPanel({
           <AlertCircle size={14} className="shrink-0 mt-0.5 text-slate-400" />
           <div className="space-y-1.5">
             <p>
-              El reentrenamiento ejecuta <code>train_model.py</code> y después{' '}
-              <code>train_quantile_models.py</code> — el orden lo impone el sistema, porque el
-              segundo lee los codificadores que escribe el primero.
+              El reentrenamiento ejecuta <code>train_model.py</code>,{' '}
+              <code>train_quantile_models.py</code> y <code>walk_forward.py</code> — el orden lo
+              impone el sistema, porque el segundo lee los codificadores que escribe el primero.
             </p>
             <p>
               Un MAPE que empeora <strong>no revierte solo</strong>: un corpus más largo y

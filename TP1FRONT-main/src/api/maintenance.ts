@@ -121,6 +121,8 @@ export interface ProgresoIngesta {
   declaraciones?: number;
   importador_actual?: string | null;
   errores?: number;
+  /** Motivo por el que el último barrido abortó sin guardar resultado. */
+  fallo?: string;
 }
 
 export interface EjecucionResumen {
