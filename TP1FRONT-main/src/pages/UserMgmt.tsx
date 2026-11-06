@@ -239,9 +239,11 @@ export default function UserMgmt() {
                           <button
                             onClick={() => { setEditando(user); setModal('editar'); }}
                             title="Editar nombre y rol"
-                            className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all"
+                            aria-label={`Editar nombre y rol de ${user.full_name ?? user.email}`}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-500 hover:text-primary hover:bg-primary/5 rounded-lg transition-all"
                           >
-                            <Edit2 size={18} />
+                            <Edit2 size={16} />
+                            <span>Editar</span>
                           </button>
                         </div>
                       </td>

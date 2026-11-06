@@ -56,8 +56,8 @@ const PERIODOS: { key: PeriodoTipo; label: string }[] = [
  * Convierte la selección de periodo (semana/mes/año) a una fecha representativa
  * YYYY-MM-DD que el backend usa para derivar mes, trimestre y semana del año.
  */
-function buildFechaEmbarque(tipo: PeriodoTipo, valor: string): string | undefined {
-  if (!valor) return undefined;
+function buildFechaEmbarque(tipo: PeriodoTipo | null, valor: string): string | undefined {
+  if (!tipo || !valor) return undefined;
   if (tipo === 'mensual') {
     // "2026-06" → primer día del mes
     return `${valor}-01`;
@@ -87,7 +87,9 @@ export default function NewQuote() {
   const [limites, setLimites] = useState(LIMITES_INICIALES);
   const [peso, setPeso] = useState<number | ''>('');          // en toneladas
   const [unidades, setUnidades] = useState<number | ''>('');
-  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('mensual');
+  // Opcional (HU-11-1): sin periodicidad preseleccionada. El selector de fecha
+  // solo aparece cuando el usuario elige Semanal, Mensual o Anual (HU-11-2).
+  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo | null>(null);
   const [periodoValor, setPeriodoValor] = useState('');
   const [comentario, setComentario] = useState('');
 
@@ -159,7 +161,7 @@ export default function NewQuote() {
       peso_kg: Number(peso) * KG_PER_TON,
       unidades: unidades ? Number(unidades) : undefined,
       fecha_embarque: buildFechaEmbarque(periodoTipo, periodoValor),
-      periodo: periodoValor ? periodoTipo : undefined,
+      periodo: periodoTipo && periodoValor ? periodoTipo : undefined,
     };
 
     try {
@@ -229,7 +231,7 @@ export default function NewQuote() {
     setImportador('');
     setPeso('');
     setUnidades('');
-    setPeriodoTipo('mensual');
+    setPeriodoTipo(null);
     setPeriodoValor('');
     setErrors({});
     clearPredictionStatus();
@@ -373,8 +375,13 @@ export default function NewQuote() {
                 </label>
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   {PERIODOS.map(({ key, label }) => (
-                    <button key={key} type="button"
-                      onClick={() => { setPeriodoTipo(key); setPeriodoValor(''); }}
+                    <button key={key} type="button" aria-pressed={periodoTipo === key}
+                      // Pulsar la opción ya elegida la desmarca: el campo es
+                      // opcional y debe poder volver a quedar vacío.
+                      onClick={() => {
+                        setPeriodoTipo(prev => (prev === key ? null : key));
+                        setPeriodoValor('');
+                      }}
                       className={`py-2.5 px-3 border rounded-lg text-sm font-semibold transition-all ${
                         periodoTipo === key
                           ? 'border-primary bg-primary/5 text-primary'
